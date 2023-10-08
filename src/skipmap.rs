@@ -78,7 +78,7 @@ impl<C: Comparator> SkipMap<C> {
             return false;
         }
 
-        // Start at the highest skip link of the head node, and work down from there    
+        // Start at the highest skip link of the head node, and work down from there
         let mut current: *const Node = unsafe { transmute_copy(&self.head.as_ref()) };
         let mut level = self.head.skips.len() - 1;
 
@@ -115,7 +115,7 @@ impl<C: Comparator> SkipMap<C> {
 
         let mut level = MAX_HEIGHT - 1;
         let mut current: *mut Node = unsafe { transmute_copy(&self.head.as_mut()) };
-
+        // Initialized all prevs entries with *head
         prevs.resize(new_height, Some(current));
 
         // Find the node after which we want to insert the new node; this is the node with the key
@@ -146,7 +146,7 @@ impl<C: Comparator> SkipMap<C> {
             }
         }
 
-        // Construct new node   
+        // Construct new node
         let mut new_skips = Vec::with_capacity(new_height);
         new_skips.resize(new_height, None);
 
@@ -169,6 +169,8 @@ impl<C: Comparator> SkipMap<C> {
         }
 
         new.next = unsafe { replace(&mut (*current).next, None) };
+
+        unsafe { replace(&mut (*current).next, Some(new)) };
 
         self.len += 1;
     }
@@ -232,15 +234,12 @@ mod tests {
         skm.insert("abx".as_bytes().to_vec(), "def".as_bytes().to_vec());
         skm.insert("aby".as_bytes().to_vec(), "def".as_bytes().to_vec());
         skm.insert("abz".as_bytes().to_vec(), "def".as_bytes().to_vec());
-        // skm.insert("abm".as_bytes().to_vec(), "def".as_bytes().to_vec());
-        // assert!(skm.contains(&"aby".as_bytes().to_vec()));
-        assert!(skm.contains(&"abc".as_bytes().to_vec()));
-        // assert!(skm.contains(&"abz".as_bytes().to_vec()));
-        // assert!(!skm.contains(&"123".as_bytes().to_vec()));
-        // assert!(!skm.contains(&"abg".as_bytes().to_vec()));
-        // assert!(!skm.contains(&"456".as_bytes().to_vec()));
+        skm.insert("abm".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        assert!(skm.contains("aby".as_bytes()));
+        assert!(skm.contains("abc".as_bytes()));
+        assert!(skm.contains("abz".as_bytes()));
+        assert!(!skm.contains("123".as_bytes()));
+        assert!(!skm.contains("abg".as_bytes()));
+        assert!(!skm.contains("456".as_bytes()));
     }
-
-    
-
 }
