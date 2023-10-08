@@ -8,6 +8,7 @@ use std::{
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
 const MAX_HEIGHT: usize = 12;
+const BRANCHING_FACTOR: u32 = 4;
 
 pub trait Comparator {
     fn cmp(a: &[u8], b: &[u8]) -> Ordering;
@@ -65,16 +66,20 @@ impl<C: Comparator> SkipMap<C> {
     }
 
     fn random_height(&mut self) -> usize {
-        1 + (self.rand.next_u32() as usize % (MAX_HEIGHT - 1))
+        let mut height = 1;
+        while height < MAX_HEIGHT && self.rand.next_u32() % BRANCHING_FACTOR == 0 {
+            height += 1;
+        }
+        height
     }
 
-    fn contains(&mut self, key: &Vec<u8>) -> bool {
+    fn contains(&mut self, key: &[u8]) -> bool {
         if key.is_empty() {
             return false;
         }
 
+        // Start at the highest skip link of the head node, and work down from there    
         let mut current: *const Node = unsafe { transmute_copy(&self.head.as_ref()) };
-
         let mut level = self.head.skips.len() - 1;
 
         loop {
@@ -113,9 +118,12 @@ impl<C: Comparator> SkipMap<C> {
 
         prevs.resize(new_height, Some(current));
 
+        // Find the node after which we want to insert the new node; this is the node with the key
+        // immediately smaller than the key to be inserted.
         loop {
             unsafe {
                 if let Some(next) = (*current).skips[level] {
+                    // If the wanted position is after the current node
                     let ord = C::cmp(&(*next).key, &key);
 
                     assert!(ord != Ordering::Equal, "No duplicates allowed");
@@ -138,6 +146,7 @@ impl<C: Comparator> SkipMap<C> {
             }
         }
 
+        // Construct new node   
         let mut new_skips = Vec::with_capacity(new_height);
         new_skips.resize(new_height, None);
 
@@ -187,4 +196,51 @@ impl<C: Comparator> SkipMap<C> {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::SkipMap;
+    #[test]
+    fn test_insert() {
+        let mut skm = SkipMap::new();
+        skm.insert("abc".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        skm.insert("abd".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        skm.insert("abe".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        skm.insert("abf".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        assert_eq!(skm.len(), 4);
+        skm.dbg_print();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_no_dupes() {
+        let mut skm = SkipMap::new();
+        skm.insert("abc".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        skm.insert("abd".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        skm.insert("abe".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        skm.insert("abi".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        // this should panic
+        skm.insert("abc".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        skm.insert("abf".as_bytes().to_vec(), "def".as_bytes().to_vec());
+    }
+
+    #[test]
+    fn test_contains() {
+        let mut skm = SkipMap::new();
+        skm.insert("abc".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        skm.insert("abd".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        skm.insert("abe".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        skm.insert("abi".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        skm.insert("abx".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        skm.insert("aby".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        skm.insert("abz".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        // skm.insert("abm".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        // assert!(skm.contains(&"aby".as_bytes().to_vec()));
+        assert!(skm.contains(&"abc".as_bytes().to_vec()));
+        // assert!(skm.contains(&"abz".as_bytes().to_vec()));
+        // assert!(!skm.contains(&"123".as_bytes().to_vec()));
+        // assert!(!skm.contains(&"abg".as_bytes().to_vec()));
+        // assert!(!skm.contains(&"456".as_bytes().to_vec()));
+    }
+
+    
+
+}
