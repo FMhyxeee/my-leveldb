@@ -150,17 +150,8 @@ impl<C: Comparator> SkipMap<C> {
 
         let newp = unsafe { transmute_copy(&(new.as_mut())) };
 
-        // for idx in 0..new_height {
-        //     if let Some(prev) = prevs[idx] {
-        //         unsafe {
-        //             new.skips[idx] = (*prev).skips[idx];
-        //             (*prev).skips[idx] = Some(newp);
-        //         }
-        //     }
-        // }
-
-        for (idx, _item) in prevs.iter().enumerate().take(new_height) {
-            if let Some(prev) = prevs[idx] {
+        for (idx, item) in prevs.into_iter().enumerate().take(new_height) {
+            if let Some(prev) = item {
                 unsafe {
                     new.skips[idx] = (*prev).skips[idx];
                     (*prev).skips[idx] = Some(newp);
