@@ -3,7 +3,7 @@
 use std::{
     cmp::Ordering,
     marker,
-    mem::{replace, transmute_copy},
+    mem::{replace, size_of, transmute_copy},
 };
 
 use rand::{rngs::StdRng, RngCore, SeedableRng};
@@ -36,6 +36,8 @@ pub struct SkipMap<C: Comparator> {
     rand: StdRng,
     cmp: C,
     len: usize,
+    // approximation of memory used.
+    approx_mem: usize,
 }
 
 impl SkipMap<StandardComparator> {
@@ -59,11 +61,16 @@ impl<C: Comparator> SkipMap<C> {
             rand: StdRng::from_seed([47u8; 32]),
             cmp: c,
             len: 0,
+            approx_mem: size_of::<Self>() + MAX_HEIGHT * size_of::<Option<*mut Node>>(),
         }
     }
 
     fn len(&self) -> usize {
         self.len
+    }
+
+    pub fn approx_memory(&self) -> usize {
+        self.approx_mem
     }
 
     fn random_height(&mut self) -> usize {
