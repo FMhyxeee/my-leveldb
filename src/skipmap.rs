@@ -116,7 +116,6 @@ impl<C: Comparator> SkipMap<C> {
 
     fn insert(&mut self, key: Vec<u8>, val: Vec<u8>) {
         assert!(!key.is_empty());
-        assert!(!val.is_empty());
 
         let new_height = self.random_height();
         let mut prevs: Vec<Option<*mut Node>> = Vec::with_capacity(new_height);
@@ -176,11 +175,20 @@ impl<C: Comparator> SkipMap<C> {
             }
         }
 
+        let added_mem = size_of::<Node>()
+            + size_of::<Option<*mut Node>>() * new.skips.len()
+            + new.key.len()
+            + new.value.len();
+
+        self.approx_mem += added_mem;
+        self.len += 1;
+
+        // Insert new node by  first replacing the previous element's next field with None and
+        // assigning its value to new next...
         new.next = unsafe { replace(&mut (*current).next, None) };
 
+        // ... and then setting the previous element's next field to the new node
         unsafe { replace(&mut (*current).next, Some(new)) };
-
-        self.len += 1;
     }
 
     fn iter(&self) -> SkipMapIter<C> {
