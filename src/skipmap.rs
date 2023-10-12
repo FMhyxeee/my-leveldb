@@ -2,7 +2,6 @@
 
 use std::{
     cmp::Ordering,
-    marker,
     mem::{replace, size_of, transmute_copy},
 };
 
@@ -82,12 +81,16 @@ impl<C: Comparator> SkipMap<C> {
     }
 
     fn contains(&mut self, key: &[u8]) -> bool {
-        if key.is_empty() {
-            return false;
-        }
+        let n = self.get_next_smaller(key);
+        println!("{:?}", n.key);
+        n.key.starts_with(key)
+    }
 
+    // Returns the node with key or the next smaller one
+    fn get_next_smaller<'a>(&'a self, key: &[u8]) -> &'a Node {
         // Start at the highest skip link of the head node, and work down from there
         let mut current: *const Node = unsafe { transmute_copy(&self.head.as_ref()) };
+
         let mut level = self.head.skips.len() - 1;
 
         loop {
@@ -100,7 +103,7 @@ impl<C: Comparator> SkipMap<C> {
                             current = next;
                             continue;
                         }
-                        Ordering::Equal => return true,
+                        Ordering::Equal => return &(*next),
                         Ordering::Greater => (),
                     }
                 }
@@ -109,9 +112,11 @@ impl<C: Comparator> SkipMap<C> {
             if level == 0 {
                 break;
             }
+
             level -= 1;
         }
-        false
+
+        unsafe { &(*current) }
     }
 
     pub fn insert(&mut self, key: Vec<u8>, val: Vec<u8>) {
@@ -194,7 +199,7 @@ impl<C: Comparator> SkipMap<C> {
 
     pub fn iter(&self) -> SkipMapIter<C> {
         SkipMapIter {
-            _map: Default::default(),
+            map: self,
             current: unsafe { transmute_copy(&self.head.as_ref()) },
         }
     }
@@ -222,8 +227,25 @@ impl<C: Comparator> SkipMap<C> {
 }
 
 pub struct SkipMapIter<'a, C: Comparator + 'a> {
-    _map: marker::PhantomData<&'a SkipMap<C>>,
+    map: &'a SkipMap<C>,
     current: *const Node,
+}
+
+impl<'a, C: Comparator> SkipMapIter<'a, C> {
+    fn seek(&mut self, key: &[u8]) {
+        let node = self.map.get_next_smaller(key);
+        self.current = unsafe { transmute_copy(&node) }
+    }
+
+    fn valid(&self) -> bool {
+        unsafe { !(*self.current).key.is_empty() }
+    }
+
+    fn current(&'a self) -> (&'a [u8], &'a [u8]) {
+        assert!(self.valid());
+
+        unsafe { (&(*self.current).key, &(*self.current).value) }
+    }
 }
 
 impl<'a, C: Comparator + 'a> Iterator for SkipMapIter<'a, C> {
@@ -285,6 +307,14 @@ mod tests {
     }
 
     #[test]
+    fn test_seek() {
+        let skm = make_skipmap();
+        assert_eq!(skm.get_next_smaller("abf".as_bytes()).key, "abf".as_bytes());
+        assert_eq!(skm.get_next_smaller("ab{".as_bytes()).key, "abz".as_bytes());
+        assert_eq!(skm.get_next_smaller("aaa".as_bytes()).key, vec![]);
+    }
+
+    #[test]
     fn test_iterator_0() {
         let skm = SkipMap::new();
 
@@ -309,5 +339,16 @@ mod tests {
         }
 
         assert_eq!(i, 26);
+    }
+
+    #[test]
+    fn test_iterator_seek_valid() {
+        let skm = make_skipmap();
+        let mut iter = skm.iter();
+
+        iter.next();
+        assert!(iter.valid());
+        iter.seek("abg".as_bytes());
+        assert_eq!(iter.current(), ("abg".as_bytes(), "def".as_bytes()));
     }
 }
