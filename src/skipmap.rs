@@ -47,7 +47,7 @@ impl SkipMap<StandardComparator> {
 }
 
 impl<C: Comparator> SkipMap<C> {
-    fn new_with_cmp(c: C) -> SkipMap<C> {
+    pub fn new_with_cmp(c: C) -> SkipMap<C> {
         let mut s = Vec::new();
         s.resize(MAX_HEIGHT, None);
 
@@ -114,7 +114,7 @@ impl<C: Comparator> SkipMap<C> {
         false
     }
 
-    fn insert(&mut self, key: Vec<u8>, val: Vec<u8>) {
+    pub fn insert(&mut self, key: Vec<u8>, val: Vec<u8>) {
         assert!(!key.is_empty());
 
         let new_height = self.random_height();
@@ -185,13 +185,14 @@ impl<C: Comparator> SkipMap<C> {
 
         // Insert new node by  first replacing the previous element's next field with None and
         // assigning its value to new next...
-        new.next = unsafe { replace(&mut (*current).next, None) };
+        new.next = unsafe { (*current).next.take() };
 
-        // ... and then setting the previous element's next field to the new node
+        // ... and then setting the previous element's next field to the new node'
+
         unsafe { replace(&mut (*current).next, Some(new)) };
     }
 
-    fn iter(&self) -> SkipMapIter<C> {
+    pub fn iter(&self) -> SkipMapIter<C> {
         SkipMapIter {
             _map: Default::default(),
             current: unsafe { transmute_copy(&self.head.as_ref()) },
