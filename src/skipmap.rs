@@ -7,6 +7,8 @@ use std::{
 
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
+use crate::types::LdbIteractor;
+
 const MAX_HEIGHT: usize = 12;
 const BRANCHING_FACTOR: u32 = 4;
 
@@ -80,18 +82,15 @@ impl<C: Comparator> SkipMap<C> {
     }
 
     fn contains(&mut self, key: &[u8]) -> bool {
-        let n = self.get_next_smaller(key);
+        let n = self.get_greater_or_equal(key);
         println!("{:?}", n.key);
         n.key.starts_with(key)
     }
 
-    // Returns the node with key or the next smaller one
-    fn get_next_smaller<'a>(&'a self, key: &[u8]) -> &'a Node {
-        // Start at the highest skip link of the head node, and work down from there
+    // Returns the nodle with key or the next bigger one
+    fn get_greater_or_equal<'a>(&'a self, key: &[u8]) -> &'a Node {
         let mut current: *const Node = unsafe { transmute_copy(&self.head.as_ref()) };
-
         let mut level = self.head.skips.len() - 1;
-
         loop {
             unsafe {
                 if let Some(next) = (*current).skips[level] {
@@ -103,18 +102,19 @@ impl<C: Comparator> SkipMap<C> {
                             continue;
                         }
                         Ordering::Equal => return &(*next),
-                        Ordering::Greater => (),
+                        Ordering::Greater => {
+                            if level == 0 {
+                                return &(*next);
+                            }
+                        }
                     }
                 }
             }
-
             if level == 0 {
                 break;
             }
-
             level -= 1;
         }
-
         unsafe { &(*current) }
     }
 
@@ -229,9 +229,9 @@ pub struct SkipMapIter<'a, C: Comparator + 'a> {
     current: *const Node,
 }
 
-impl<'a, C: Comparator> SkipMapIter<'a, C> {
+impl<'a, C: Comparator> LdbIteractor<'a> for SkipMapIter<'a, C> {
     fn seek(&mut self, key: &[u8]) {
-        let node = self.map.get_next_smaller(key);
+        let node = self.map.get_greater_or_equal(key);
         self.current = unsafe { transmute_copy(&node) }
     }
 
@@ -239,7 +239,7 @@ impl<'a, C: Comparator> SkipMapIter<'a, C> {
         unsafe { !(*self.current).key.is_empty() }
     }
 
-    fn current(&'a self) -> (&'a [u8], &'a [u8]) {
+    fn current(&'a self) -> (&'a Vec<u8>, &'a Vec<u8>) {
         assert!(self.valid());
 
         unsafe { (&(*self.current).key, &(*self.current).value) }
@@ -263,6 +263,8 @@ impl<'a, C: Comparator + 'a> Iterator for SkipMapIter<'a, C> {
 
 #[cfg(test)]
 mod tests {
+    use crate::types::*;
+
     use super::{SkipMap, StandardComparator};
 
     fn make_skipmap() -> SkipMap<StandardComparator> {
@@ -291,6 +293,7 @@ mod tests {
         let mut skm = make_skipmap();
         // this should panic
         skm.insert("abc".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        skm.insert("abf".as_bytes().to_vec(), "def".as_bytes().to_vec());
     }
 
     #[test]
@@ -307,9 +310,18 @@ mod tests {
     #[test]
     fn test_seek() {
         let skm = make_skipmap();
-        assert_eq!(skm.get_next_smaller("abf".as_bytes()).key, "abf".as_bytes());
-        assert_eq!(skm.get_next_smaller("ab{".as_bytes()).key, "abz".as_bytes());
-        assert_eq!(skm.get_next_smaller("aaa".as_bytes()).key, vec![]);
+        assert_eq!(
+            skm.get_greater_or_equal("abf".as_bytes()).key,
+            "abf".as_bytes()
+        );
+        assert_eq!(
+            skm.get_greater_or_equal("ab{".as_bytes()).key,
+            "abz".as_bytes()
+        );
+        assert_eq!(
+            skm.get_greater_or_equal("aaa".as_bytes()).key,
+            "aba".as_bytes()
+        );
     }
 
     #[test]
@@ -346,7 +358,17 @@ mod tests {
 
         iter.next();
         assert!(iter.valid());
-        iter.seek("abg".as_bytes());
-        assert_eq!(iter.current(), ("abg".as_bytes(), "def".as_bytes()));
+        iter.seek("abz".as_bytes());
+        assert_eq!(
+            iter.current(),
+            (&"abz".as_bytes().to_vec(), &"def".as_bytes().to_vec())
+        );
+
+        // go back to beginning
+        iter.seek("aba".as_bytes());
+        assert_eq!(
+            iter.current(),
+            (&"aba".as_bytes().to_vec(), &"def".as_bytes().to_vec())
+        )
     }
 }
