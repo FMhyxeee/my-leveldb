@@ -5,3 +5,12 @@ pub enum ValueType {
 }
 
 pub type SequenceNumber = u64;
+
+pub enum Status {
+    OK,
+    NotFOUND(String),
+    Corruption(String),
+    NotSupported(String),
+    InvalidArgument(String),
+    IOError(String),
+}
