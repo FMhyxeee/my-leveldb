@@ -8,14 +8,14 @@ pub type SequenceNumber = u64;
 
 pub enum Status {
     OK,
-    NotFOUND(String),
+    NotFound(String),
     Corruption(String),
     NotSupported(String),
     InvalidArgument(String),
     IOError(String),
 }
 
-pub trait LdbIteractor<'a>: Iterator {
+pub trait LdbIterator<'a>: Iterator {
     fn seek(&mut self, key: &[u8]);
     fn valid(&self) -> bool;
     fn current(&'a self) -> Self::Item;

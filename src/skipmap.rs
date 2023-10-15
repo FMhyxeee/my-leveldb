@@ -7,7 +7,7 @@ use std::{
 
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
-use crate::types::LdbIteractor;
+use crate::types::LdbIterator;
 
 const MAX_HEIGHT: usize = 12;
 const BRANCHING_FACTOR: u32 = 4;
@@ -229,7 +229,7 @@ pub struct SkipMapIter<'a, C: Comparator + 'a> {
     current: *const Node,
 }
 
-impl<'a, C: Comparator> LdbIteractor<'a> for SkipMapIter<'a, C> {
+impl<'a, C: Comparator> LdbIterator<'a> for SkipMapIter<'a, C> {
     fn seek(&mut self, key: &[u8]) {
         let node = self.map.get_greater_or_equal(key);
         self.current = unsafe { transmute_copy(&node) }
