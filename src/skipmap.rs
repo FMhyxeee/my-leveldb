@@ -12,6 +12,8 @@ use crate::types::LdbIterator;
 const MAX_HEIGHT: usize = 12;
 const BRANCHING_FACTOR: u32 = 4;
 
+// Trait used to influnce how SkipMap determines the order of elements, Use StandardComparator
+// for the normal implementation using numerical comparison.
 pub trait Comparator {
     fn cmp(a: &[u8], b: &[u8]) -> Ordering;
 }
@@ -24,6 +26,8 @@ impl Comparator for StandardComparator {
     }
 }
 
+/// A Node in a skipmap contains links to the next node and others are further away (skips);
+/// `skips[0]` is the immediate element after, that is, the element contained in `next`.
 struct Node {
     skips: Vec<Option<*mut Node>>,
     //skip[0] points to the element in next; next provides proper ownership
@@ -32,6 +36,9 @@ struct Node {
     value: Vec<u8>,
 }
 
+/// Implements the backing store for a `Memtable`. The important methods are `insert()` and `contains()`;
+/// in order to get full key and value for an entry, use a `SkipMapIter` instance, `seek()` to the key to
+/// look up (this is as fast as any lookup in a skip map), and then call `current()`
 pub struct SkipMap<C: Comparator> {
     head: Box<Node>,
     rand: StdRng,
@@ -87,8 +94,9 @@ impl<C: Comparator> SkipMap<C> {
         n.key.starts_with(key)
     }
 
-    // Returns the nodle with key or the next bigger one
+    // Returns the node with key or the next greater one
     fn get_greater_or_equal<'a>(&'a self, key: &[u8]) -> &'a Node {
+        // Start at the highest skip link of the head node, and work down from there
         let mut current: *const Node = unsafe { transmute_copy(&self.head.as_ref()) };
         let mut level = self.head.skips.len() - 1;
         loop {
@@ -121,12 +129,13 @@ impl<C: Comparator> SkipMap<C> {
     pub fn insert(&mut self, key: Vec<u8>, val: Vec<u8>) {
         assert!(!key.is_empty());
 
+        // Keeping track of skip entries that will need to be updated;
         let new_height = self.random_height();
         let mut prevs: Vec<Option<*mut Node>> = Vec::with_capacity(new_height);
 
         let mut level = MAX_HEIGHT - 1;
         let mut current: *mut Node = unsafe { transmute_copy(&self.head.as_mut()) };
-        // Initialized all prevs entries with *head
+        // Initialize all prevs entries with *head
         prevs.resize(new_height, Some(current));
 
         // Find the node after which we want to insert the new node; this is the node with the key
@@ -186,12 +195,11 @@ impl<C: Comparator> SkipMap<C> {
         self.approx_mem += added_mem;
         self.len += 1;
 
-        // Insert new node by  first replacing the previous element's next field with None and
+        // Insert new node by first replacing the previous element's next field with None and
         // assigning its value to new next...
         new.next = unsafe { (*current).next.take() };
 
-        // ... and then setting the previous element's next field to the new node'
-
+        // ...and then setting the previous element's next field to the new node
         unsafe { replace(&mut (*current).next, Some(new)) };
     }
 
@@ -202,6 +210,7 @@ impl<C: Comparator> SkipMap<C> {
         }
     }
 
+    // Runs through the skipmap and prints everything including addresses
     fn dbg_print(&self) {
         let mut current: *const Node = unsafe { transmute_copy(&self.head.as_ref()) };
         loop {
@@ -250,8 +259,7 @@ impl<'a, C: Comparator + 'a> Iterator for SkipMapIter<'a, C> {
     type Item = (&'a Vec<u8>, &'a Vec<u8>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        // we first go to the next element, then return that --  in order to skip the head node
-
+        // we first go to the next element, then return that -- in order to skip the head node
         unsafe {
             (*self.current).next.as_ref().map(|next| {
                 self.current = transmute_copy(&next.as_ref());

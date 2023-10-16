@@ -9,6 +9,8 @@ use crate::{
     types::{LdbIterator, SequenceNumber, Status, ValueType},
 };
 
+/// Encapsulates a user key + sequence number, which is used for lookups in the internal map
+/// implementation of a MemTable.
 #[derive(Debug)]
 pub struct LookupKey {
     key: Vec<u8>,
@@ -76,6 +78,10 @@ impl<C: Comparator> MemTable<C> {
             .insert(Self::build_memtable_key(key, value, t, seq), Vec::new())
     }
 
+    /// A memtable key is a bytestring containing (keylen, key, tag, vallen, val). This function
+    /// builds such a key. It's called key because the underlying Map implementation will only be
+    /// concerned with keys; the value field is not used (instead, the value is encoding in the key,
+    /// and for lookups we just search for the next bigger entry).
     fn build_memtable_key(key: &[u8], value: &[u8], t: ValueType, seq: SequenceNumber) -> Vec<u8> {
         // We are using the original LevelDB approach here -- encoding key and value into the
         // key that is used for insertion into the SkipMap.
@@ -114,8 +120,9 @@ impl<C: Comparator> MemTable<C> {
         buf
     }
 
-    #[allow(unused_variables)]
-    // returns (keylen, key, tag, vallen, val)
+    /// Parses a memtable key and returns (keylen, key, tag, vallen, val).
+    /// If the key only contains (keylen, key, tag), the vallen and val return values will be
+    /// meaningless.
     fn parse_memtable_key(mkey: &[u8]) -> (usize, Vec<u8>, u64, usize, Vec<u8>) {
         println!("mkey: {:?}", mkey);
         let (keylen, mut i): (usize, usize) = VarInt::decode_var(mkey).unwrap();
