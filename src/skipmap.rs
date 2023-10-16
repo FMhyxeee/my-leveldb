@@ -57,7 +57,6 @@ impl SkipMap<StandardComparator> {
 impl<C: Comparator> SkipMap<C> {
     pub fn new_with_cmp(c: C) -> SkipMap<C> {
         let s = vec![None; MAX_HEIGHT];
-
         SkipMap {
             head: Box::new(Node {
                 skips: s,
