@@ -7,7 +7,7 @@ pub enum ValueType {
     TypeValue = 1,
 }
 
-/// Represents a snapshot or the sequence number of a single entry.
+/// Represents a sequence number of a single entry.
 pub type SequenceNumber = u64;
 
 pub enum Status {
@@ -63,7 +63,7 @@ impl SnapshotList {
         }
     }
 
-    pub fn new_snapshot(&mut self, seq: SequenceNumber) -> SequenceNumber {
+    pub fn new_snapshot(&mut self, seq: SequenceNumber) -> Snapshot {
         self.newest += 1;
         self.map.insert(self.newest, seq);
 
@@ -90,6 +90,10 @@ impl SnapshotList {
         }
         self.map.remove(&ss);
     }
+
+    pub fn empty(&self) -> bool {
+        self.oldest == 0
+    }
 }
 
 #[cfg(test)]
@@ -99,6 +103,8 @@ mod tests {
     #[test]
     fn test_snapshot_list() {
         let mut l = SnapshotList::new();
+
+        assert!(l.empty());
 
         let oldest = l.new_snapshot(1);
         l.new_snapshot(2);
