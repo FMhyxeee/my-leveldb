@@ -9,14 +9,14 @@ use crate::{
     types::{LdbIterator, SequenceNumber, Status, ValueType},
 };
 
-/// Encapsulates a user key + sequence number, which is used for lookups in the internal map
-/// implementation of a MemTable.
 #[derive(Debug)]
 pub struct LookupKey {
     key: Vec<u8>,
     key_offset: usize,
 }
 
+/// Encapsulates a user key + sequence number, which is used for lookups in the internal map
+/// implementation of a MemTable.
 impl LookupKey {
     #[allow(unused_assignments)]
     fn new(k: &[u8], s: SequenceNumber) -> LookupKey {
@@ -41,11 +41,18 @@ impl LookupKey {
         }
     }
 
+    // Returns full key
     fn memtable_key(&self) -> &[u8] {
         &self.key
     }
 
+    // Returns only key
     fn user_key(&self) -> Vec<u8> {
+        self.key[self.key_offset..].to_vec()
+    }
+
+    // Returns key+tag
+    fn internal_key(&self) -> Vec<u8> {
         self.key[self.key_offset..].to_vec()
     }
 }
@@ -124,9 +131,7 @@ impl<C: Comparator> MemTable<C> {
     /// If the key only contains (keylen, key, tag), the vallen and val return values will be
     /// meaningless.
     fn parse_memtable_key(mkey: &[u8]) -> (usize, Vec<u8>, u64, usize, Vec<u8>) {
-        println!("mkey: {:?}", mkey);
         let (keylen, mut i): (usize, usize) = VarInt::decode_var(mkey).unwrap();
-        println!("keylen:{:?}, mut i: {:?}", keylen, i);
 
         let key = mkey[i..i + keylen].to_vec();
         i += keylen;
@@ -151,21 +156,13 @@ impl<C: Comparator> MemTable<C> {
 
     #[allow(unused_variables)]
     pub fn get(&self, key: &LookupKey) -> Result<Vec<u8>, Status> {
-        println!("key: {key:?}, key.memtable_key is {:?}", key.memtable_key());
         let mut iter = self.map.iter();
         iter.seek(key.memtable_key());
 
         if iter.valid() {
             let foundkey = iter.current().0;
-            println!("foundkey: {:?}", foundkey);
-            println!("key: {:?}", key);
             let (lkeylen, lkey, _, _, _) = Self::parse_memtable_key(key.memtable_key());
-            println!("lkeylen: {:?}, lkey: {:?}", lkeylen, lkey);
             let (fkeylen, fkey, tag, vallen, val) = Self::parse_memtable_key(foundkey);
-            println!(
-                "lkeylen: {:?}, lkey: {:?}, fkeylen: {:?}, fkey: {:?}",
-                lkeylen, lkey, fkeylen, fkey
-            );
 
             if C::cmp(&lkey, &fkey) == Ordering::Equal {
                 if tag & 0xff == ValueType::TypeValue as u64 {
