@@ -5,8 +5,8 @@ use std::cmp::Ordering;
 use integer_encoding::{FixedInt, VarInt};
 
 use crate::{
-    skipmap::{Comparator, SkipMap, SkipMapIter, StandardComparator},
-    types::{LdbIterator, SequenceNumber, Status, ValueType},
+    skipmap::{SkipMap, SkipMapIter},
+    types::{Comparator, LdbIterator, SequenceNumber, StandardComparator, Status, ValueType},
 };
 
 #[derive(Debug)]
@@ -48,7 +48,7 @@ impl LookupKey {
 
     // Returns only key
     fn user_key(&self) -> Vec<u8> {
-        self.key[self.key_offset..].to_vec()
+        self.key[self.key_offset..self.key.len() - 8].to_vec()
     }
 
     // Returns key+tag
@@ -93,10 +93,12 @@ impl<C: Comparator> MemTable<C> {
         // We are using the original LevelDB approach here -- encoding key and value into the
         // key that is used for insertion into the SkipMap.
         // The format is : [key_size: varint32, key_data: [u8], flags: u64, value_size: varint32, value_data: [u8]]
+
+        let mut i = 0;
+
         let keysize = key.len();
         let valsize = value.len();
 
-        let mut i = 0;
         let mut buf = Vec::with_capacity(
             keysize
                 + keysize.required_space()

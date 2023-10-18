@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::{cmp::Ordering, collections::HashMap};
 
 pub enum ValueType {
     TypeDeletion = 0,
@@ -17,6 +17,20 @@ pub enum Status {
     NotSupported(String),
     InvalidArgument(String),
     IOError(String),
+}
+
+/// Trait used to influnce how SkipMap determines the order of elements, Use StandardComparator
+/// for the normal implementation using numerical comparison.
+pub trait Comparator {
+    fn cmp(a: &[u8], b: &[u8]) -> Ordering;
+}
+
+pub struct StandardComparator;
+
+impl Comparator for StandardComparator {
+    fn cmp(a: &[u8], b: &[u8]) -> Ordering {
+        a.cmp(b)
+    }
 }
 
 /// An extension of the standard `Iterator` trait that supports some methods necessary for LevelDB.

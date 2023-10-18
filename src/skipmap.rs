@@ -7,24 +7,10 @@ use std::{
 
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
-use crate::types::LdbIterator;
+use crate::types::{Comparator, LdbIterator, StandardComparator};
 
 const MAX_HEIGHT: usize = 12;
 const BRANCHING_FACTOR: u32 = 4;
-
-// Trait used to influnce how SkipMap determines the order of elements, Use StandardComparator
-// for the normal implementation using numerical comparison.
-pub trait Comparator {
-    fn cmp(a: &[u8], b: &[u8]) -> Ordering;
-}
-
-pub struct StandardComparator;
-
-impl Comparator for StandardComparator {
-    fn cmp(a: &[u8], b: &[u8]) -> Ordering {
-        a.cmp(b)
-    }
-}
 
 /// A Node in a skipmap contains links to the next node and others are further away (skips);
 /// `skips[0]` is the immediate element after, that is, the element contained in `next`.
