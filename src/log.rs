@@ -23,9 +23,9 @@ pub enum RecordType {
 
 pub struct LogWriter<W: Write> {
     dst: W,
+    digest: crc32::Digest,
     current_block_offset: usize,
     block_size: usize,
-    digest: crc32::Digest,
 }
 
 impl<W: Write> LogWriter<W> {
