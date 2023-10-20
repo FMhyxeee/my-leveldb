@@ -3,7 +3,7 @@
 use std::cmp::Ordering;
 
 use crate::{
-    types::{LdbIterator, StandardComparator},
+    types::{LdbIterator, Options, StandardComparator},
     Comparator,
 };
 
@@ -160,6 +160,94 @@ impl<'a, C: 'a + Comparator> LdbIterator<'a> for BlockIter<'a, C> {
             self.key.clone(),
             &self.block.data[self.val_offset..self.offset],
         )
+    }
+}
+
+pub struct BlockBuilder<C: Comparator> {
+    opt: Options<C>,
+    buffer: Vec<u8>,
+    restarts: Vec<u32>,
+
+    last_key: Vec<u8>,
+    counter: usize,
+}
+
+impl<C: Comparator> BlockBuilder<C> {
+    fn new(o: Options<C>) -> BlockBuilder<C> {
+        BlockBuilder {
+            buffer: Vec::with_capacity(o.block_size),
+            opt: o,
+            restarts: Vec::with_capacity(1024),
+            last_key: Vec::new(),
+            counter: 0,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.buffer.clear();
+        self.restarts.clear();
+        self.last_key.clear();
+    }
+
+    pub fn add(&mut self, key: &[u8], val: &[u8]) {
+        assert!(self.counter <= self.opt.block_restart_interval);
+        assert!(self.buffer.is_empty() || C::cmp(self.last_key.as_slice(), key) == Ordering::Less);
+
+        let mut shared = 0;
+
+        if self.counter < self.opt.block_restart_interval {
+            let smallest = if self.last_key.len() < key.len() {
+                self.last_key.len()
+            } else {
+                key.len()
+            };
+
+            while shared < smallest && self.last_key[shared] == key[shared] {
+                shared += 1;
+            }
+        } else {
+            self.restarts.push(self.buffer.len() as u32);
+            self.last_key.clear();
+            self.counter = 0;
+        }
+
+        let non_shared = key.len() - shared;
+        let mut buf = [0u8, 4];
+
+        let mut sz = shared.encode_var(&mut buf[..]);
+        self.buffer.extend_from_slice(&buf[0..sz]);
+        sz = non_shared.encode_var(&mut buf[..]);
+        self.buffer.extend_from_slice(&buf[0..sz]);
+        sz = val.len().encode_var(&mut buf[0..sz]);
+        self.buffer.extend_from_slice(&buf[0..sz]);
+
+        self.buffer.extend_from_slice(&key[shared..]);
+        self.buffer.extend_from_slice(val);
+
+        // Update key
+        self.last_key.resize(shared, 0);
+        self.last_key.extend_from_slice(&key[shared..]);
+
+        // assert_eq!(&self.last_key[..], key);
+        self.counter += 1;
+    }
+
+    pub fn finish(mut self) -> BlockContents {
+        // 1. Append RESTARTS
+        let mut buf = [0u8; 4];
+        self.buffer.reserve(self.restarts.len() * 4 + 4);
+
+        for r in self.restarts.iter() {
+            r.encode_fixed(&mut buf[..]);
+            self.buffer.extend_from_slice(&buf[..]);
+        }
+
+        // 2. Append N_RESTARTS
+        (self.restarts.len() as u32).encode_fixed(&mut buf[..]);
+        self.buffer.extend_from_slice(&buf[..]);
+
+        // done
+        self.buffer
     }
 }
 
