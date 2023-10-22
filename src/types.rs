@@ -25,6 +25,7 @@ pub trait Comparator {
     fn cmp(a: &[u8], b: &[u8]) -> Ordering;
 }
 
+#[derive(Debug)]
 pub struct StandardComparator;
 
 impl Comparator for StandardComparator {
@@ -35,6 +36,7 @@ impl Comparator for StandardComparator {
 
 /// [not all member types implemented yet]
 ///
+#[derive(Debug)]
 pub struct Options<C: Comparator> {
     pub cmp: C,
     pub create_if_missing: bool,

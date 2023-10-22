@@ -27,6 +27,7 @@ pub type BlockContents = Vec<u8>;
 ///
 /// N_RESTARTS contains the number of restarts
 
+#[derive(Debug)]
 pub struct Block<C: Comparator> {
     data: BlockContents,
     restarts_off: usize,
@@ -54,12 +55,17 @@ impl<C: Comparator> Block<C> {
     }
 
     fn number_restarts(&self) -> usize {
+        println!(
+            "The data.len() is {:?} restarts_off is {:?}",
+            self.data.len(),
+            self.restarts_off
+        );
         ((self.data.len() - self.restarts_off) / 4) - 1
     }
 
     fn get_restart_point(&self, ix: usize) -> usize {
         let restart = self.restarts_off + 4 * ix;
-        usize::decode_fixed(&self.data[restart..restart + 4])
+        u32::decode_fixed(&self.data[restart..restart + 4]) as usize
     }
 
     pub fn iter(&self) -> BlockIter<C> {
@@ -108,6 +114,13 @@ impl<'a, C: Comparator> BlockIter<'a, C> {
         self.key
             .extend_from_slice(&self.block.data[self.offset..self.offset + non_shared]);
     }
+
+    fn reset(&mut self) {
+        self.offset = 0;
+        self.current_restart_ix = 0;
+        self.key.clear();
+        self.val_offset = 0;
+    }
 }
 
 impl<'a, C: Comparator> Iterator for BlockIter<'a, C> {
@@ -141,16 +154,61 @@ impl<'a, C: Comparator> Iterator for BlockIter<'a, C> {
 }
 
 impl<'a, C: 'a + Comparator> LdbIterator<'a> for BlockIter<'a, C> {
-    // TODO: Use binary search here
     fn seek(&mut self, to: &[u8]) {
+        self.reset();
+        println!("number_restarts is {:?}", self.block.number_restarts());
+
+        // Do a binary search over the restart points
+        let mut left = 0;
+        let mut right = if self.block.number_restarts() == 0 {
+            0
+        } else {
+            self.block.number_restarts() - 1
+        };
+        println!("left is {:?} right is {:?}", left, right);
+
+        while left < right {
+            let middle = (left + right + 1) / 2;
+            self.offset = self.block.get_restart_point(middle);
+            // advances self.offset
+            let (shared, non_shared, _) = self.parse_entry();
+
+            // At a restart, the shared part is supposed to be 0.
+            assert_eq!(shared, 0);
+
+            let cmp = C::cmp(to, &self.block.data[self.offset..self.offset + non_shared]);
+
+            if cmp == Ordering::Less {
+                right = middle - 1;
+            } else {
+                left = middle;
+            }
+        }
+
+        assert_eq!(left, right);
+        self.current_restart_ix = left;
+        self.offset = self.block.get_restart_point(left);
+        println!(
+            "the offset is {:?} current_restart_ix is {:?}",
+            self.offset, self.current_restart_ix
+        );
+
+        // Linear search from here on
+
+        println!("Linear search from here on !");
+        println!("{:?}", self.next());
         for (k, _) in self.by_ref() {
-            if C::cmp(k.as_slice(), to) != Ordering::Less {
-                break;
+            if C::cmp(k.as_slice(), to) >= Ordering::Equal {
+                return;
             }
         }
     }
 
     fn valid(&self) -> bool {
+        println!(
+            "valid key {:?}, val_offset {}, restarts_off {}",
+            self.key, self.val_offset, self.block.restarts_off
+        );
         !self.key.is_empty() && self.val_offset > 0 && self.val_offset < self.block.restarts_off
     }
 
@@ -163,6 +221,7 @@ impl<'a, C: 'a + Comparator> LdbIterator<'a> for BlockIter<'a, C> {
     }
 }
 
+#[derive(Debug)]
 pub struct BlockBuilder<C: Comparator> {
     opt: Options<C>,
     buffer: Vec<u8>,
@@ -213,7 +272,7 @@ impl<C: Comparator> BlockBuilder<C> {
         }
 
         let non_shared = key.len() - shared;
-        let mut buf = [0u8, 4];
+        let mut buf = [0u8; 4];
 
         let mut sz = shared.encode_var(&mut buf[..]);
         self.buffer.extend_from_slice(&buf[0..sz]);
@@ -254,7 +313,7 @@ impl<C: Comparator> BlockBuilder<C> {
 
 #[cfg(test)]
 mod tests {
-    use crate::types::Options;
+    use crate::types::{LdbIterator, Options};
 
     use super::{Block, BlockBuilder};
 
@@ -282,10 +341,14 @@ mod tests {
 
         for &(k, v) in get_data().iter() {
             builder.add(k, v);
+            println!("counter is {:?}", builder.counter);
             assert!(builder.counter <= 3);
         }
 
+        println!("Block builder is {:?}", builder);
+
         let block = builder.finish();
+        println!("block is {:?}", block);
 
         assert_eq!(block.len(), 145);
     }
@@ -315,5 +378,69 @@ mod tests {
     }
 
     #[test]
-    fn test_iter() {}
+    fn test_iterate_2() {
+        let o = Options {
+            block_restart_interval: 3,
+            ..Default::default()
+        };
+
+        let mut builder = BlockBuilder::new(o);
+
+        let data = get_data();
+
+        for &(k, v) in data.iter() {
+            builder.add(k, v);
+        }
+
+        let block_contents = builder.finish();
+
+        let block = Block::new(block_contents);
+        let block_iter = block.iter();
+
+        let mut i = 0;
+
+        for (k, v) in block_iter {
+            assert_eq!(&k[..], data[i].0);
+            assert_eq!(v, data[i].1);
+            i += 1;
+        }
+
+        assert_eq!(i, data.len());
+    }
+
+    #[test]
+    fn test_seek() {
+        let o = Options {
+            block_restart_interval: 3,
+            ..Default::default()
+        };
+
+        let data = get_data();
+
+        let mut builder = BlockBuilder::new(o);
+
+        for &(k, v) in data.iter() {
+            builder.add(k, v);
+        }
+
+        let block_contents = builder.finish();
+        let block = Block::new(block_contents);
+        println!("the block is {:?}", block);
+
+        let mut iter = block.iter();
+
+        iter.seek("prefix_key2".as_bytes());
+        assert!(iter.valid());
+        assert_eq!(
+            iter.current(),
+            ("prefix_key2".as_bytes().to_vec(), "value".as_bytes())
+        );
+
+        // iter.seek(&"key1".as_bytes());
+        // assert!(iter.valid());
+        // assert_eq!(
+        //     iter.current(),
+        //     ("key1".as_bytes().to_vec(), "value1".as_bytes())
+        // );
+    }
 }
