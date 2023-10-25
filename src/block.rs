@@ -54,12 +54,8 @@ impl<C: Comparator> Block<C> {
         }
     }
 
+    // get the number of restart
     fn number_restarts(&self) -> usize {
-        println!(
-            "The data.len() is {:?} restarts_off is {:?}",
-            self.data.len(),
-            self.restarts_off
-        );
         ((self.data.len() - self.restarts_off) / 4) - 1
     }
 
@@ -72,6 +68,7 @@ impl<C: Comparator> Block<C> {
         BlockIter {
             block: self,
             offset: 0,
+            current_entry_offset: 0,
             current_restart_ix: 0,
             key: Vec::new(),
             val_offset: 0,
@@ -82,6 +79,9 @@ impl<C: Comparator> Block<C> {
 pub struct BlockIter<'a, C: 'a + Comparator> {
     block: &'a Block<C>,
     offset: usize,
+    // start of current entry
+    current_entry_offset: usize,
+    // tracks the last restart we encountered
     current_restart_ix: usize,
     // We assemble the key from two parts usually, so we keep the current full key here.
     key: Vec<u8>,
@@ -90,6 +90,7 @@ pub struct BlockIter<'a, C: 'a + Comparator> {
 
 impl<'a, C: Comparator> BlockIter<'a, C> {
     // Returns SHARED, NON_SHARED and VALSIZE from the current position. Advances self.offset.
+    // The DATASTRACURE shared non_shared valsize
     fn parse_entry(&mut self) -> (usize, usize, usize) {
         let mut i = 0;
         let (shared, sharedslen) = usize::decode_var(&self.block.data[self.offset..]).unwrap();
@@ -127,9 +128,9 @@ impl<'a, C: Comparator> Iterator for BlockIter<'a, C> {
     type Item = (Vec<u8>, &'a [u8]);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let current_offset = self.offset;
+        let current_entry_offset = self.offset;
 
-        if current_offset >= self.block.restarts_off {
+        if current_entry_offset >= self.block.restarts_off {
             return None;
         }
 
@@ -141,7 +142,7 @@ impl<'a, C: Comparator> Iterator for BlockIter<'a, C> {
 
         let num_restarts = self.block.number_restarts();
         while self.current_restart_ix + 1 < num_restarts
-            && self.block.get_restart_point(self.current_restart_ix + 1) < current_offset
+            && self.block.get_restart_point(self.current_restart_ix + 1) < self.current_entry_offset
         {
             self.current_restart_ix += 1;
         }
@@ -156,7 +157,7 @@ impl<'a, C: Comparator> Iterator for BlockIter<'a, C> {
 impl<'a, C: 'a + Comparator> LdbIterator<'a> for BlockIter<'a, C> {
     fn seek(&mut self, to: &[u8]) {
         self.reset();
-        println!("number_restarts is {:?}", self.block.number_restarts());
+        // println!("number_restarts is {:?}", self.block.number_restarts());
 
         // Do a binary search over the restart points
         let mut left = 0;
@@ -165,11 +166,12 @@ impl<'a, C: 'a + Comparator> LdbIterator<'a> for BlockIter<'a, C> {
         } else {
             self.block.number_restarts() - 1
         };
-        println!("left is {:?} right is {:?}", left, right);
+        // println!("left is {:?} right is {:?}", left, right);
 
         while left < right {
             let middle = (left + right + 1) / 2;
             self.offset = self.block.get_restart_point(middle);
+            println!("the offset is {:?} ", self.offset);
             // advances self.offset
             let (shared, non_shared, _) = self.parse_entry();
 
@@ -188,16 +190,17 @@ impl<'a, C: 'a + Comparator> LdbIterator<'a> for BlockIter<'a, C> {
         assert_eq!(left, right);
         self.current_restart_ix = left;
         self.offset = self.block.get_restart_point(left);
-        println!(
-            "the offset is {:?} current_restart_ix is {:?}",
-            self.offset, self.current_restart_ix
-        );
+        // println!(
+        //     "the offset is {:?} current_restart_ix is {:?}",
+        //     self.offset, self.current_restart_ix
+        // );
 
         // Linear search from here on
 
-        println!("Linear search from here on !");
-        println!("{:?}", self.next());
+        // println!("Linear search from here on !");
+        // println!("{:?}", self.next());
         for (k, _) in self.by_ref() {
+            // println!("the key is :{:?}", k);
             if C::cmp(k.as_slice(), to) >= Ordering::Equal {
                 return;
             }
@@ -218,6 +221,36 @@ impl<'a, C: 'a + Comparator> LdbIterator<'a> for BlockIter<'a, C> {
             self.key.clone(),
             &self.block.data[self.val_offset..self.offset],
         )
+    }
+
+    fn prev(&mut self) -> Option<Self::Item> {
+        // as in the original implementation -- seek to last restart point, then look for key
+        let current_offset = self.current_entry_offset;
+
+        // At the beginning, can't go further back
+        if current_offset == 0 {
+            self.reset();
+            return None;
+        }
+
+        while self.block.get_restart_point(self.current_restart_ix) >= current_offset {
+            self.current_restart_ix -= 1;
+        }
+
+        self.offset = self.block.get_restart_point(self.current_restart_ix);
+        assert!(self.offset < current_offset);
+
+        let mut result;
+
+        loop {
+            result = self.next();
+            println!("next! {:?}", (self.current_entry_offset, self.offset));
+
+            if self.offset >= current_offset {
+                break;
+            }
+        }
+        result
     }
 }
 
@@ -331,6 +364,17 @@ mod tests {
         ]
     }
 
+    fn get_data_simple() -> Vec<(&'static [u8], &'static [u8])> {
+        vec![
+            ("a".as_bytes(), "v".as_bytes()),
+            ("b".as_bytes(), "v".as_bytes()),
+            ("c".as_bytes(), "v".as_bytes()),
+            ("k1".as_bytes(), "v".as_bytes()),
+            ("k2".as_bytes(), "v".as_bytes()),
+            ("k3".as_bytes(), "v".as_bytes()),
+        ]
+    }
+
     #[test]
     fn test_block_builder() {
         let o = Options {
@@ -408,6 +452,36 @@ mod tests {
         assert_eq!(i, data.len());
     }
 
+    // #[test]
+    // fn test_iterate_reverse() {
+    //     let mut o = Options::default();
+    //     o.block_restart_interval = 3;
+    //     let data = get_data();
+    //     let mut builder = BlockBuilder::new(o);
+
+    //     for &(k, v) in data.iter() {
+    //         builder.add(k, v);
+    //     }
+
+    //     let block_contents = builder.finish();
+    //     let block = Block::new(block_contents);
+    //     let mut block_iter = block.iter();
+
+    //     assert!(!block_iter.valid());
+    //     assert_eq!(block_iter.next(),
+    //                Some(("key1".as_bytes().to_vec(), "value1".as_bytes())));
+    //     assert!(block_iter.valid());
+    //     block_iter.next();
+    //     assert!(block_iter.valid());
+    //     block_iter.prev();
+    //     assert!(block_iter.valid());
+    //     assert_eq!(block_iter.current(),
+    //                ("key1".as_bytes().to_vec(), "value1".as_bytes()));
+    //     block_iter.prev();
+    //     assert!(!block_iter.valid());
+    // }
+
+    // this still have some trouble
     #[test]
     fn test_seek() {
         let o = Options {
@@ -425,7 +499,7 @@ mod tests {
 
         let block_contents = builder.finish();
         let block = Block::new(block_contents);
-        println!("the block is {:?}", block);
+        // println!("the block is {:?}", block);
 
         let mut iter = block.iter();
 
@@ -442,5 +516,41 @@ mod tests {
         //     iter.current(),
         //     ("key1".as_bytes().to_vec(), "value1".as_bytes())
         // );
+    }
+
+    #[test]
+    fn test_full() {
+        let o = Options {
+            block_restart_interval: 3,
+            ..Default::default()
+        };
+
+        let data = get_data_simple();
+
+        let mut builder = BlockBuilder::new(o);
+
+        for &(k, v) in data.iter() {
+            builder.add(k, v);
+        }
+
+        let block_contents = builder.finish();
+
+        let block = Block::new(block_contents);
+
+        println!("block is {:?}", block);
+
+        for (i, (k, v)) in block.iter().enumerate() {
+            println!("k is {:?}, v is {:?}", k, v);
+            assert_eq!(&k[..], data[i].0);
+            assert_eq!(v, data[i].1);
+        }
+
+        let mut iter = block.iter();
+
+        println!("a as bytes is {:?}", "a".as_bytes());
+
+        iter.seek("a".as_bytes());
+
+        println!("seek is {:?}", iter.current());
     }
 }

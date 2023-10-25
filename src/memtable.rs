@@ -236,6 +236,25 @@ impl<'a, C: 'a + Comparator> LdbIterator<'a> for MemtableIterator<'a, C> {
     fn seek(&mut self, to: &[u8]) {
         self.skipmapiter.seek(LookupKey::new(to, 0).memtable_key());
     }
+
+    fn prev(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some((foundkey, _)) = self.skipmapiter.prev() {
+                let (keylen, keyoff, tag, vallen, valoff) =
+                    MemTable::<C>::parse_memtable_key(foundkey);
+                if tag & 0xff == ValueType::TypeValue as u64 {
+                    return Some((
+                        &foundkey[keyoff..keyoff + keylen],
+                        &foundkey[valoff..valoff + vallen],
+                    ));
+                } else {
+                    continue;
+                }
+            } else {
+                return None;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -311,6 +330,28 @@ mod tests {
         iter.seek("abf".as_bytes());
         assert_eq!(iter.current().0, vec![97, 98, 102]);
         assert_eq!(iter.current().1, vec![49, 50, 54]);
+    }
+
+    #[test]
+    fn test_memtable_iterator_reverse() {
+        let mt = get_memtable();
+        let mut iter = mt.iter();
+
+        iter.next();
+        assert!(iter.valid());
+
+        assert_eq!(iter.current().0, vec![97, 98, 99].as_slice());
+
+        iter.next();
+        assert!(iter.valid());
+        assert_eq!(iter.current().0, vec![97, 98, 100].as_slice());
+
+        iter.prev();
+        assert!(iter.valid());
+        assert_eq!(iter.current().0, vec![97, 98, 99].as_slice());
+
+        iter.prev();
+        assert!(!iter.valid());
     }
 
     #[test]
