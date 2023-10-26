@@ -4,19 +4,24 @@ use integer_encoding::FixedInt;
 
 /// Encapsulates a filter algorithm allowing to search for keys more efficiently.
 pub trait FilterPolicy {
+    /// Returns a string identifying this policy.
     fn name(&self) -> &'static str;
+    /// Create a filter matching the given keys.
     fn create_filter(&self, keys: &[&[u8]]) -> Vec<u8>;
+    /// Check whether the given key may match the filter.
     fn key_may_match(&self, key: &[u8], filter: &[u8]) -> bool;
 }
 
 const BLOOM_SEED: u32 = 0xbc9f1d34;
 
+/// A filter policy using a bloom filter internally.
 #[derive(Debug)]
 pub struct BloomPolicy {
     bits_per_key: u32,
     k: u32,
 }
 
+/// Beware the magic numbers...
 impl BloomPolicy {
     pub fn new(bits_per_key: u32) -> BloomPolicy {
         let mut k = (bits_per_key as f32 * 0.69) as u32;
@@ -124,6 +129,33 @@ impl FilterPolicy for BloomPolicy {
             h = (h as u64 + delta as u64) as u32;
         }
         true
+    }
+}
+
+/// A filter policy wrapping another policy; extracting the user key from internal key for all
+/// operation.
+/// A user Key is u8*.
+/// An Internal Key is u8* u8{8} (where the second part encodes a tag and a sequence number).
+pub struct InternalFilterPolicy<FP: FilterPolicy> {
+    internal: FP,
+}
+
+impl<FP: FilterPolicy> FilterPolicy for InternalFilterPolicy<FP> {
+    fn name(&self) -> &'static str {
+        self.internal.name()
+    }
+
+    fn create_filter(&self, keys: &[&[u8]]) -> Vec<u8> {
+        let mut mod_keys = keys.to_vec();
+
+        for (i, key) in keys.iter().enumerate() {
+            mod_keys[i] = &key[0..key.len() - 8];
+        }
+        self.internal.create_filter(&mod_keys)
+    }
+
+    fn key_may_match(&self, key: &[u8], filter: &[u8]) -> bool {
+        self.internal.key_may_match(&key[0..key.len() - 8], filter)
     }
 }
 
