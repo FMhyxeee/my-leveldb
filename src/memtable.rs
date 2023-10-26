@@ -47,13 +47,13 @@ impl LookupKey {
     }
 
     // Returns only key
-    fn user_key(&self) -> Vec<u8> {
-        self.key[self.key_offset..self.key.len() - 8].to_vec()
+    fn user_key(&self) -> &[u8] {
+        &self.key[self.key_offset..self.key.len() - 8]
     }
 
     // Returns key+tag
-    fn internal_key(&self) -> Vec<u8> {
-        self.key[self.key_offset..].to_vec()
+    fn internal_key(&self) -> &[u8] {
+        &self.key[self.key_offset..]
     }
 }
 
