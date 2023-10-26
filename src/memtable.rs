@@ -25,6 +25,8 @@ impl LookupKey {
         );
         let mut i = 0;
 
+        key.reserve(8 + k.len().required_space() + k.len());
+
         key.resize(k.len().required_space(), 0);
         i += k.len().encode_var(&mut key[i..]);
 
@@ -274,6 +276,24 @@ mod tests {
             mt.add(e.0, ValueType::TypeValue, e.1.as_bytes(), e.2.as_bytes());
         }
         mt
+    }
+
+    #[test]
+    fn test_lookupkey() {
+        let lk1 = LookupKey::new("abcde".as_bytes(), 123);
+        let lk2 = LookupKey::new("xyabxy".as_bytes(), 97);
+
+        // Assert correct allocation strategy
+        // 5 + 8 + 1
+        assert_eq!(lk1.key.len(), 14);
+        assert_eq!(lk2.key.capacity(), 15);
+
+        assert_eq!(lk1.user_key(), "abcde".as_bytes());
+        assert_eq!(u32::decode_var(lk1.memtable_key()).unwrap(), (5, 1));
+        assert_eq!(
+            lk2.internal_key(),
+            vec![120, 121, 97, 98, 120, 121, 1, 97, 0, 0, 0, 0, 0, 0].as_slice()
+        );
     }
 
     #[test]
