@@ -2,6 +2,8 @@
 
 use std::cmp::Ordering;
 
+use crate::filter::FilterPolicy;
+
 pub enum ValueType {
     TypeDeletion = 0,
     TypeValue = 1,
@@ -36,7 +38,6 @@ impl Comparator for StandardComparator {
 
 /// [not all member types implemented yet]
 ///
-#[derive(Debug)]
 pub struct Options<C: Comparator> {
     pub cmp: C,
     pub create_if_missing: bool,
@@ -49,7 +50,8 @@ pub struct Options<C: Comparator> {
     pub block_size: usize,
     pub block_restart_interval: usize,
     // pub compression_type: CompressionType
-    pub reuse_logs: bool, // pub filter_poilcy: FilterPoilcy,
+    pub reuse_logs: bool,
+    pub filter_poilcy: Option<Box<dyn FilterPolicy>>,
 }
 
 impl Default for Options<StandardComparator> {
@@ -64,6 +66,7 @@ impl Default for Options<StandardComparator> {
             block_size: 4 << 10,
             block_restart_interval: 16,
             reuse_logs: false,
+            filter_poilcy: None,
         }
     }
 }

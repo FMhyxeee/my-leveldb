@@ -255,7 +255,6 @@ impl<'a, C: 'a + Comparator> LdbIterator<'a> for BlockIter<'a, C> {
     }
 }
 
-#[derive(Debug)]
 pub struct BlockBuilder<C: Comparator> {
     opt: Options<C>,
     buffer: Vec<u8>,
@@ -389,8 +388,6 @@ mod tests {
             println!("counter is {:?}", builder.counter);
             assert!(builder.counter <= 3);
         }
-
-        println!("Block builder is {:?}", builder);
 
         let block = builder.finish();
         println!("block is {:?}", block);
