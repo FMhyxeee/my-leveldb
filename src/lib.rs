@@ -1,4 +1,5 @@
 mod block;
+mod blockhandle;
 mod log;
 mod memtable;
 mod skipmap;
