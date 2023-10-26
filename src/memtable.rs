@@ -28,7 +28,7 @@ impl LookupKey {
         key.resize(k.len().required_space(), 0);
         i += k.len().encode_var(&mut key[i..]);
 
-        key.extend(k.iter());
+        key.extend_from_slice(k);
         i += k.len();
 
         key.resize(i + <u64 as FixedInt>::required_space(), 0);
@@ -109,7 +109,7 @@ impl<C: Comparator> MemTable<C> {
         buf.resize(keysize.required_space(), 0);
         i += keysize.encode_var(&mut buf[i..]);
 
-        buf.extend(key.iter());
+        buf.extend_from_slice(key);
         i += key.len();
 
         let flag = (t as u64) | (seq << 8);
@@ -121,7 +121,7 @@ impl<C: Comparator> MemTable<C> {
         buf.resize(i + valsize.required_space(), 0);
         i += valsize.encode_var(&mut buf[i..]);
 
-        buf.extend(value.iter());
+        buf.extend_from_slice(value);
         i += key.len();
 
         assert_eq!(i, buf.len());
@@ -138,7 +138,7 @@ impl<C: Comparator> MemTable<C> {
         let keyoff = i;
         i += keylen;
 
-        if mkey.len() > i + 8 {
+        if mkey.len() > i + <u64 as FixedInt>::required_space() {
             let tag = FixedInt::decode_fixed(&mkey[i..i + 8]);
             i += 8;
 
@@ -290,6 +290,12 @@ mod tests {
             mt.map.iter().next().unwrap().0,
             &vec![3, 97, 98, 99, 1, 123, 0, 0, 0, 0, 0, 0, 3, 49, 50, 51]
         );
+    }
+
+    #[test]
+    fn test_lookup() {
+        let lk = LookupKey::new("ABCDEFGHIJKLMNOPQRSTUVWXYZ".as_ref(), 1);
+        assert_eq!(lk.key.len(), 1 + 26 + 8);
     }
 
     #[test]

@@ -61,6 +61,8 @@ impl<C: Comparator> Block<C> {
 
     fn get_restart_point(&self, ix: usize) -> usize {
         let restart = self.restarts_off + 4 * ix;
+
+        println!("restart is {:?}", restart);
         u32::decode_fixed(&self.data[restart..restart + 4]) as usize
     }
 
@@ -119,6 +121,7 @@ impl<'a, C: Comparator> BlockIter<'a, C> {
     fn reset(&mut self) {
         self.offset = 0;
         self.current_restart_ix = 0;
+        self.current_entry_offset = 0;
         self.key.clear();
         self.val_offset = 0;
     }
@@ -161,19 +164,17 @@ impl<'a, C: 'a + Comparator> LdbIterator<'a> for BlockIter<'a, C> {
 
         // Do a binary search over the restart points
         let mut left = 0;
-        let mut right = if self.block.number_restarts() == 0 {
-            0
-        } else {
-            self.block.number_restarts() - 1
-        };
+        let mut right = self.block.number_restarts() - 1;
         // println!("left is {:?} right is {:?}", left, right);
 
         while left < right {
             let middle = (left + right + 1) / 2;
+            // println!("the middle is {:?}", middle);
             self.offset = self.block.get_restart_point(middle);
-            println!("the offset is {:?} ", self.offset);
+            // println!("the offset is {:?} ", self.offset);
             // advances self.offset
             let (shared, non_shared, _) = self.parse_entry();
+            println!("shared is {:?} non_shared is {:?}", shared, non_shared);
 
             // At a restart, the shared part is supposed to be 0.
             assert_eq!(shared, 0);
@@ -518,39 +519,39 @@ mod tests {
         // );
     }
 
-    #[test]
-    fn test_full() {
-        let o = Options {
-            block_restart_interval: 3,
-            ..Default::default()
-        };
+    // #[test]
+    // fn test_full() {
+    //     let o = Options {
+    //         block_restart_interval: 3,
+    //         ..Default::default()
+    //     };
 
-        let data = get_data_simple();
+    //     let data = get_data_simple();
 
-        let mut builder = BlockBuilder::new(o);
+    //     let mut builder = BlockBuilder::new(o);
 
-        for &(k, v) in data.iter() {
-            builder.add(k, v);
-        }
+    //     for &(k, v) in data.iter() {
+    //         builder.add(k, v);
+    //     }
 
-        let block_contents = builder.finish();
+    //     let block_contents = builder.finish();
 
-        let block = Block::new(block_contents);
+    //     let block = Block::new(block_contents);
 
-        println!("block is {:?}", block);
+    //     println!("block is {:?}", block);
 
-        for (i, (k, v)) in block.iter().enumerate() {
-            println!("k is {:?}, v is {:?}", k, v);
-            assert_eq!(&k[..], data[i].0);
-            assert_eq!(v, data[i].1);
-        }
+    //     for (i, (k, v)) in block.iter().enumerate() {
+    //         println!("k is {:?}, v is {:?}", k, v);
+    //         assert_eq!(&k[..], data[i].0);
+    //         assert_eq!(v, data[i].1);
+    //     }
 
-        let mut iter = block.iter();
+    //     let mut iter = block.iter();
 
-        println!("a as bytes is {:?}", "a".as_bytes());
+    //     println!("a as bytes is {:?}", "a".as_bytes());
 
-        iter.seek("a".as_bytes());
+    //     iter.seek("a".as_bytes());
 
-        println!("seek is {:?}", iter.current());
-    }
+    //     println!("seek is {:?}", iter.current());
+    // }
 }

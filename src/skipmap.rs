@@ -76,6 +76,7 @@ impl<C: Comparator> SkipMap<C> {
     fn contains(&mut self, key: &[u8]) -> bool {
         let n = self.get_greater_or_equal(key);
         println!("{:?}", n.key);
+        // TODO: why use starts_with method
         n.key.starts_with(key)
     }
 
@@ -103,6 +104,8 @@ impl<C: Comparator> SkipMap<C> {
                     }
                 }
             }
+
+            // At the bottom of Node and no more next node , we should break;
             if level == 0 {
                 break;
             }
@@ -195,12 +198,14 @@ impl<C: Comparator> SkipMap<C> {
             value: val,
         });
 
+        // newp is a raw Node point
         let newp = unsafe { transmute_copy(&(new.as_mut())) };
 
         for (idx, item) in prevs.into_iter().enumerate().take(new_height) {
             if let Some(prev) = item {
                 unsafe {
                     new.skips[idx] = (*prev).skips[idx];
+                    // make prev node's every skips point to newp
                     (*prev).skips[idx] = Some(newp);
                 }
             }
@@ -341,6 +346,7 @@ mod tests {
         assert!(skm.contains("aby".as_bytes()));
         assert!(skm.contains("abc".as_bytes()));
         assert!(skm.contains("abz".as_bytes()));
+        assert!(skm.contains("ab".as_bytes()));
         assert!(!skm.contains("123".as_bytes()));
         assert!(!skm.contains("aaa".as_bytes()));
         assert!(!skm.contains("456".as_bytes()));
@@ -417,6 +423,12 @@ mod tests {
         assert_eq!(
             iter.current(),
             (&"abz".as_bytes().to_vec(), &"def".as_bytes().to_vec())
+        );
+
+        iter.seek("ab".as_bytes());
+        assert_eq!(
+            iter.current(),
+            (&"aba".as_bytes().to_vec(), &"def".as_bytes().to_vec())
         );
 
         // go back to beginning
