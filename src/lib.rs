@@ -2,6 +2,8 @@
 
 mod block;
 mod blockhandle;
+mod env;
+mod error;
 mod filter;
 mod filter_block;
 mod log;
