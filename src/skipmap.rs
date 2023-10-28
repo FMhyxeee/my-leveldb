@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::{
     cmp::Ordering,
     mem::{replace, size_of, transmute_copy},
