@@ -1,5 +1,8 @@
+use std::io::Write;
+
 use integer_encoding::FixedInt;
 use integer_encoding::VarInt;
+use integer_encoding::VarIntWriter;
 
 use crate::{
     memtable::MemTable,
@@ -11,61 +14,57 @@ const SEQNUM_OFFSET: usize = 0;
 const COUNT_OFFSET: usize = 8;
 const HEADER_SIZE: usize = 12;
 
+/// A WriteBatch contains entries to be written to a MemTable (for example) in a compact form.
+///
+/// The storage format is (with the respective length in bytes)
+///
+/// [tag: 1, keylen: ~var, key: keylen, vallen: ~var, val: value]
 pub struct WriteBatch {
     entries: Vec<u8>,
 }
 
 impl WriteBatch {
-    fn new(_seq: SequenceNumber) -> WriteBatch {
+    pub fn new() -> WriteBatch {
         let mut v = Vec::with_capacity(128);
         v.resize(HEADER_SIZE, 0);
 
         WriteBatch { entries: v }
     }
 
-    fn from(buf: Vec<u8>) -> WriteBatch {
-        WriteBatch { entries: buf }
+    /// Initializes a WriteBatch with a serialized WriteBatch.
+    pub fn set_contains(&mut self, form: &[u8]) {
+        self.entries.clear();
+        self.entries.extend_from_slice(form);
     }
 
-    fn put(&mut self, k: &[u8], v: &[u8]) {
-        let mut ix = self.entries.len();
-
-        self.entries.push(ValueType::TypeValue as u8);
-        ix += 1;
-
-        self.entries.resize(ix + k.len().required_space(), 0);
-        ix += k.len().encode_var(&mut self.entries[ix..]);
-
-        self.entries.extend_from_slice(k);
-        ix += k.len();
-
-        self.entries.resize(ix + v.len().required_space(), 0);
-        v.len().encode_var(&mut self.entries[ix..]);
-
-        self.entries.extend_from_slice(v);
-        // ix += v.len();
+    /// Adds an entry to a WriteBatch, to be added to the database.
+    #[allow(unused_assignments)]
+    pub fn put(&mut self, k: &[u8], v: &[u8]) {
+        self.entries
+            .write_all(&[ValueType::TypeValue as u8])
+            .unwrap();
+        self.entries.write_varint(k.len()).unwrap();
+        self.entries.write_all(k).unwrap();
+        self.entries.write_varint(v.len()).unwrap();
+        self.entries.write_all(v).unwrap();
 
         let c = self.count();
         self.set_count(c + 1);
     }
 
-    fn delete(&mut self, k: &[u8]) {
-        let mut ix = self.entries.len();
+    /// Marks an entry to be deleted from the database.
+    pub fn delete(&mut self, k: &[u8]) {
+        let _ = self.entries.write_all(&[ValueType::TypeDeletion as u8]);
 
-        self.entries.push(ValueType::TypeDeletion as u8);
-        ix += 1;
-
-        self.entries.resize(ix + k.len().required_space(), 0);
-        k.len().encode_var(&mut self.entries[ix..]);
-
-        self.entries.extend_from_slice(k);
-        // ix += k.len();
+        self.entries.write_varint(k.len()).unwrap();
+        self.entries.write_all(k).unwrap();
 
         let c = self.count();
         self.set_count(c + 1);
     }
 
-    fn clear(&mut self) {
+    /// Clear the contents of a WriteBatch
+    pub fn clear(&mut self) {
         self.entries.clear()
     }
 
@@ -77,7 +76,8 @@ impl WriteBatch {
         c.encode_fixed(&mut self.entries[COUNT_OFFSET..COUNT_OFFSET + 4]);
     }
 
-    fn count(&self) -> u32 {
+    /// Returns how many operations are in a batch
+    pub fn count(&self) -> u32 {
         u32::decode_fixed(&self.entries[COUNT_OFFSET..COUNT_OFFSET + 4])
     }
 
@@ -85,30 +85,33 @@ impl WriteBatch {
         s.encode_fixed(&mut self.entries[SEQNUM_OFFSET..SEQNUM_OFFSET + 8]);
     }
 
-    fn sequence(&self) -> SequenceNumber {
+    pub fn sequence(&self) -> SequenceNumber {
         u64::decode_fixed(&self.entries[SEQNUM_OFFSET..SEQNUM_OFFSET + 8])
     }
 
-    fn iter(&self) -> WriteBatchIter {
+    pub fn iter(&self) -> WriteBatchIter {
         WriteBatchIter {
             batch: self,
             ix: HEADER_SIZE,
         }
     }
 
-    fn insert_into_memtable<C: Comparator>(&self, mt: &mut MemTable<C>) {
-        let mut sequence_num = self.sequence();
-
+    pub fn insert_into_memtable<C: Comparator>(
+        &self,
+        mut seq: SequenceNumber,
+        mt: &mut MemTable<C>,
+    ) {
         for (k, v) in self.iter() {
             match v {
-                Some(v_) => mt.add(sequence_num, ValueType::TypeValue, k, v_),
-                None => mt.add(sequence_num, ValueType::TypeDeletion, k, "".as_bytes()),
+                Some(v_) => mt.add(seq, ValueType::TypeValue, k, v_),
+                None => mt.add(seq, ValueType::TypeDeletion, k, "".as_bytes()),
             }
-            sequence_num += 1;
+            seq += 1;
         }
     }
 
-    fn encode(&self) -> Vec<u8> {
+    pub fn encode(&mut self, s: SequenceNumber) -> Vec<u8> {
+        self.set_sequence(s);
         self.entries.clone()
     }
 }
@@ -129,7 +132,7 @@ impl<'a> Iterator for WriteBatchIter<'a> {
         let tag = self.batch.entries[self.ix];
         self.ix += 1;
 
-        let (klen, l) = usize::decode_var(&self.batch.entries[self.ix..]).unwrap();
+        let (klen, l) = usize::decode_var(&self.batch.entries[self.ix..])?;
         self.ix += l;
         let k = &self.batch.entries[self.ix..self.ix + klen];
         self.ix += klen;
@@ -153,7 +156,7 @@ mod tests {
 
     #[test]
     fn test_write_betch() {
-        let mut b = WriteBatch::new(1);
+        let mut b = WriteBatch::new();
 
         let entries = vec![
             ("abc".as_bytes(), "def".as_bytes()),
@@ -171,8 +174,8 @@ mod tests {
             }
         }
 
-        println!("{:?}", b.entries);
-        assert_eq!(b.encode().len(), 49);
+        eprintln!("{:?}", b.entries);
+        assert_eq!(b.byte_size(), 49);
         assert_eq!(b.iter().count(), 5);
 
         for (i, (k, v)) in b.iter().enumerate() {
@@ -184,6 +187,6 @@ mod tests {
             }
         }
 
-        assert_eq!(b.encode().len(), 49);
+        assert_eq!(b.encode(1).len(), 49);
     }
 }
