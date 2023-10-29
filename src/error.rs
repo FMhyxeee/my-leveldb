@@ -5,9 +5,10 @@ use std::io;
 use std::result;
 use std::sync;
 
-#[cfg(feature = "fs")]
-use errno;
+// #[cfg(feature = "fs")]
+// use errno;
 
+// TODO: snap unimplement
 // use snap;
 
 /// StatusCode describes various failure modes of database operations.

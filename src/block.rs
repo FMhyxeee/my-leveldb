@@ -3,7 +3,8 @@
 use std::cmp::Ordering;
 
 use crate::{
-    types::{LdbIterator, Options, StandardComparator},
+    options::Options,
+    types::{LdbIterator, StandardComparator},
     Comparator,
 };
 
@@ -346,7 +347,7 @@ impl<C: Comparator> BlockBuilder<C> {
 
 #[cfg(test)]
 mod tests {
-    use crate::types::{LdbIterator, Options};
+    use crate::{options::Options, types::LdbIterator};
 
     use super::{Block, BlockBuilder};
 

@@ -10,3 +10,15 @@ crc = "1.2"
 integer-encoding = "3.0.0"
 libc = "0.2.149"
 rand = "0.8.5"
+
+
+errno = { optional = true, version = "0.2" }
+fs2 = {optional = true, version = "0.4.3"}
+tokio = { optional = true, features = ["rt", "sync"], version = ">= 1.21" }
+
+
+
+[features]
+default = ["fs"]
+async = ["tokio"]
+fs = ["errno", "fs2"]
