@@ -68,11 +68,11 @@ impl WriteBatch {
         self.entries.clear()
     }
 
-    fn byte_size(&self) -> usize {
+    pub fn byte_size(&self) -> usize {
         self.entries.len()
     }
 
-    fn set_count(&mut self, c: u32) {
+    pub fn set_count(&mut self, c: u32) {
         c.encode_fixed(&mut self.entries[COUNT_OFFSET..COUNT_OFFSET + 4]);
     }
 
@@ -81,7 +81,7 @@ impl WriteBatch {
         u32::decode_fixed(&self.entries[COUNT_OFFSET..COUNT_OFFSET + 4])
     }
 
-    fn set_sequence(&mut self, s: SequenceNumber) {
+    pub fn set_sequence(&mut self, s: SequenceNumber) {
         s.encode_fixed(&mut self.entries[SEQNUM_OFFSET..SEQNUM_OFFSET + 8]);
     }
 
