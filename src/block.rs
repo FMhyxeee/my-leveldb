@@ -260,7 +260,8 @@ impl<'a, C: 'a + Comparator> LdbIterator<'a> for BlockIter<'a, C> {
 }
 
 pub struct BlockBuilder<C: Comparator> {
-    opt: Options<C>,
+    opt: Options,
+    cmp: C,
     buffer: Vec<u8>,
     restarts: Vec<u32>,
 
@@ -269,9 +270,10 @@ pub struct BlockBuilder<C: Comparator> {
 }
 
 impl<C: Comparator> BlockBuilder<C> {
-    fn new(o: Options<C>) -> BlockBuilder<C> {
+    fn new(o: Options, cmp: C) -> BlockBuilder<C> {
         BlockBuilder {
             buffer: Vec::with_capacity(o.block_size),
+            cmp,
             opt: o,
             restarts: Vec::with_capacity(1024),
             last_key: Vec::new(),
@@ -354,7 +356,10 @@ impl<C: Comparator> BlockBuilder<C> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{options::Options, types::LdbIterator};
+    use crate::{
+        options::Options,
+        types::{LdbIterator, StandardComparator},
+    };
 
     use super::{Block, BlockBuilder};
 
@@ -389,7 +394,7 @@ mod tests {
             block_restart_interval: 3,
             ..Default::default()
         };
-        let mut builder = BlockBuilder::new(o);
+        let mut builder = BlockBuilder::new(o, StandardComparator);
 
         for &(k, v) in get_data().iter() {
             builder.add(k, v);
@@ -407,7 +412,7 @@ mod tests {
     #[test]
     fn test_build_iterate() {
         let data = get_data();
-        let mut builder = BlockBuilder::new(Options::default());
+        let mut builder = BlockBuilder::new(Options::default(), StandardComparator);
 
         for &(k, v) in data.iter() {
             builder.add(k, v);
@@ -435,7 +440,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut builder = BlockBuilder::new(o);
+        let mut builder = BlockBuilder::new(o, StandardComparator);
 
         let data = get_data();
 
@@ -466,7 +471,7 @@ mod tests {
             ..Default::default()
         };
         let data = get_data();
-        let mut builder = BlockBuilder::new(o);
+        let mut builder = BlockBuilder::new(o, StandardComparator);
 
         for &(k, v) in data.iter() {
             builder.add(k, v);
@@ -502,7 +507,7 @@ mod tests {
 
         let data = get_data();
 
-        let mut builder = BlockBuilder::new(o);
+        let mut builder = BlockBuilder::new(o, StandardComparator);
 
         for &(k, v) in data.iter() {
             builder.add(k, v);
@@ -538,7 +543,7 @@ mod tests {
 
         let data = get_data_simple();
 
-        let mut builder = BlockBuilder::new(o);
+        let mut builder = BlockBuilder::new(o, StandardComparator);
 
         for &(k, v) in data.iter() {
             builder.add(k, v);

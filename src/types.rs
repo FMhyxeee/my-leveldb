@@ -19,11 +19,11 @@ pub enum Status {
 
 /// Trait used to influnce how SkipMap determines the order of elements, Use StandardComparator
 /// for the normal implementation using numerical comparison.
-pub trait Comparator {
+pub trait Comparator: Copy {
     fn cmp(a: &[u8], b: &[u8]) -> Ordering;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct StandardComparator;
 
 impl Comparator for StandardComparator {
