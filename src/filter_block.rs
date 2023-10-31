@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::filter::FilterPolicy;
 
 use integer_encoding::FixedInt;

@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use integer_encoding::VarInt;
 
 pub struct BlockHandle {
