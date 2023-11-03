@@ -248,7 +248,7 @@ pub struct BlockBuilder<C: Comparator> {
 }
 
 impl<C: Comparator> BlockBuilder<C> {
-    fn new(o: Options, cmp: C) -> BlockBuilder<C> {
+    pub fn new(o: Options, cmp: C) -> BlockBuilder<C> {
         let mut restarts = vec![0];
         restarts.reserve(1023);
         BlockBuilder {
