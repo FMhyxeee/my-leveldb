@@ -144,6 +144,10 @@ impl<'a, C: Comparator, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, C,
         }
     }
 
+    pub fn entries(&self) -> usize {
+        self.num_entries
+    }
+
     pub fn add(&mut self, key: &'a [u8], val: &[u8]) {
         assert!(self.data_block.is_some());
         assert!(self.num_entries == 0 || C::cmp(&self.prev_block_last_key, key) == Ordering::Less);
@@ -307,26 +311,48 @@ mod tests {
     #[test]
     fn test_table_builder() {
         let mut d = Vec::with_capacity(512);
-        {
-            let opt = Options {
-                block_restart_interval: 3,
-                ..Default::default()
-            };
-            let mut b = TableBuilder::new(opt, StandardComparator, &mut d, BloomPolicy::new(4));
 
-            let data = vec![
-                ("abc", "def"),
-                ("abd", "dee"),
-                ("bcd", "asa"),
-                ("bsr", "a00"),
-            ];
+        let opt = Options {
+            block_restart_interval: 3,
+            ..Default::default()
+        };
+        let mut b = TableBuilder::new(opt, StandardComparator, &mut d, BloomPolicy::new(4));
 
-            for &(k, v) in data.iter() {
-                b.add(k.as_bytes(), v.as_bytes());
-            }
+        let data = vec![
+            ("abc", "def"),
+            ("abd", "dee"),
+            ("bcd", "asa"),
+            ("bsr", "a00"),
+        ];
 
-            b.finish();
+        for &(k, v) in data.iter() {
+            b.add(k.as_bytes(), v.as_bytes());
         }
-        println!("{:?}", d);
+
+        b.finish();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bad_input() {
+        let mut d = Vec::with_capacity(512);
+        let o = Options {
+            block_restart_interval: 3,
+            ..Default::default()
+        };
+
+        let mut b = TableBuilder::new(o, StandardComparator, &mut d, BloomPolicy::new(4));
+
+        // Test Two equal consecution keys
+        let data = vec![
+            ("abc", "def"),
+            ("abc", "dee"),
+            ("bcd", "asa"),
+            ("bsr", "a00"),
+        ];
+
+        for &(k, v) in data.iter() {
+            b.add(k.as_bytes(), v.as_bytes());
+        }
     }
 }
