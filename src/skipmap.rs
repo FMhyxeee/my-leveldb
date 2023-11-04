@@ -394,6 +394,17 @@ mod tests {
         }
 
         assert_eq!(i, 0);
+        assert!(!skm.iter().valid());
+    }
+
+    #[test]
+    fn test_iterator_init() {
+        let skm = make_skipmap();
+        let mut iter = skm.iter();
+
+        assert!(!iter.valid());
+        iter.next();
+        assert!(iter.valid());
     }
 
     #[test]

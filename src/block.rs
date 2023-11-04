@@ -396,7 +396,7 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_block() {
+    fn test_block_empty() {
         let o = Options {
             block_restart_interval: 16,
             ..Default::default()
@@ -415,7 +415,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_iterate() {
+    fn test_block_build_iterate() {
         let data = get_data();
         let mut builder = BlockBuilder::new(Options::default(), StandardComparator);
 
@@ -429,6 +429,8 @@ mod tests {
         let block_iter = block.iter();
         let mut i = 0;
 
+        assert!(!block_iter.valid());
+
         for (k, v) in block_iter {
             assert_eq!(&k[..], data[i].0);
             assert_eq!(v, data[i].1);
@@ -439,7 +441,7 @@ mod tests {
     }
 
     #[test]
-    fn test_iterate_2() {
+    fn test_block_iterate_2() {
         let o = Options {
             block_restart_interval: 3,
             ..Default::default()
@@ -470,7 +472,7 @@ mod tests {
     }
 
     #[test]
-    fn test_iterate_reverse() {
+    fn test_block_iterate_reverse() {
         let o = Options {
             block_restart_interval: 3,
             ..Default::default()
@@ -506,7 +508,7 @@ mod tests {
 
     // this still have some trouble
     #[test]
-    fn test_seek() {
+    fn test_block_seek() {
         let o = Options {
             block_restart_interval: 3,
             ..Default::default()
