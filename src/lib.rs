@@ -10,6 +10,7 @@ mod filter;
 mod filter_block;
 mod log;
 mod memtable;
+mod merging_iter;
 mod options;
 mod skipmap;
 mod snapshot;

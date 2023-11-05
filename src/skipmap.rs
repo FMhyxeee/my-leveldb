@@ -261,14 +261,17 @@ pub struct SkipMapIter<'a, C: Comparator + 'a> {
 }
 
 impl<'a, C: Comparator + 'a> Iterator for SkipMapIter<'a, C> {
-    type Item = (&'a Vec<u8>, &'a Vec<u8>);
+    type Item = (&'a [u8], &'a [u8]);
 
     fn next(&mut self) -> Option<Self::Item> {
         // we first go to the next element, then return that -- in order to skip the head node
         unsafe {
             (*self.current).next.as_ref().map(|next| {
                 self.current = transmute_copy(&next.as_ref());
-                (&(*self.current).key, &(*self.current).value)
+                (
+                    (*self.current).key.as_slice(),
+                    (*self.current).value.as_slice(),
+                )
             })
         }
     }
@@ -442,20 +445,20 @@ pub mod tests {
         iter.seek("abz".as_bytes());
         assert_eq!(
             iter.current().unwrap(),
-            (&"abz".as_bytes().to_vec(), &"def".as_bytes().to_vec())
+            ("abz".as_bytes(), "def".as_bytes())
         );
 
         iter.seek("ab".as_bytes());
         assert_eq!(
             iter.current().unwrap(),
-            (&"aba".as_bytes().to_vec(), &"def".as_bytes().to_vec())
+            ("aba".as_bytes(), "def".as_bytes())
         );
 
         // go back to beginning
         iter.seek("aba".as_bytes());
         assert_eq!(
             iter.current().unwrap(),
-            (&"aba".as_bytes().to_vec(), &"def".as_bytes().to_vec())
+            ("aba".as_bytes(), "def".as_bytes())
         );
 
         iter.seek("".as_bytes());
