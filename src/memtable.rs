@@ -157,8 +157,8 @@ impl<C: Comparator> MemTable<C> {
         let mut iter = self.map.iter();
         iter.seek(key.memtable_key());
 
-        if iter.valid() {
-            let foundkey = iter.current().0;
+        if let Some(e) = iter.current() {
+            let foundkey = e.0;
             let (lkeylen, lkeyoff, _, _, _) = Self::parse_memtable_key(key.memtable_key());
             let (fkeylen, fkeyoff, tag, vallen, valoff) = Self::parse_memtable_key(foundkey);
 
@@ -214,7 +214,7 @@ impl<'a, C: 'a + Comparator> Iterator for MemtableIterator<'a, C> {
     }
 }
 
-impl<'a, C: 'a + Comparator> LdbIterator<'a> for MemtableIterator<'a, C> {
+impl<'a, C: 'a + Comparator> LdbIterator for MemtableIterator<'a, C> {
     fn reset(&mut self) {
         self.skipmapiter.reset();
     }
@@ -222,19 +222,24 @@ impl<'a, C: 'a + Comparator> LdbIterator<'a> for MemtableIterator<'a, C> {
     fn valid(&self) -> bool {
         self.skipmapiter.valid()
     }
-    fn current(&'a self) -> Self::Item {
-        assert!(self.valid());
+    fn current(&self) -> Option<Self::Item> {
+        if !self.valid() {
+            return None;
+        }
 
-        let (foundkey, _) = self.skipmapiter.current();
-        let (keylen, keyoff, tag, vallen, valoff) = MemTable::<C>::parse_memtable_key(foundkey);
+        if let Some((foundkey, _)) = self.skipmapiter.current() {
+            let (keylen, keyoff, tag, vallen, valoff) = MemTable::<C>::parse_memtable_key(foundkey);
 
-        if tag & 0xff == ValueType::TypeValue as u64 {
-            (
-                &foundkey[keyoff..keyoff + keylen],
-                &foundkey[valoff..valoff + vallen],
-            )
+            if tag & 0xff == ValueType::TypeValue as u64 {
+                Some((
+                    &foundkey[keyoff..keyoff + keylen],
+                    &foundkey[valoff..valoff + vallen],
+                ))
+            } else {
+                panic!("should not happen");
+            }
         } else {
-            panic!("should not happen");
+            panic!("should not happen")
         }
     }
     fn seek(&mut self, to: &[u8]) {
@@ -360,12 +365,12 @@ mod tests {
         let mut iter = mt.iter();
 
         iter.next();
-        assert_eq!(iter.current().0, vec![97, 98, 99]);
-        assert_eq!(iter.current().1, vec![49, 50, 51]);
+        assert_eq!(iter.current().unwrap().0, vec![97, 98, 99]);
+        assert_eq!(iter.current().unwrap().1, vec![49, 50, 51]);
 
         iter.seek("abf".as_bytes());
-        assert_eq!(iter.current().0, vec![97, 98, 102]);
-        assert_eq!(iter.current().1, vec![49, 50, 54]);
+        assert_eq!(iter.current().unwrap().0, vec![97, 98, 102]);
+        assert_eq!(iter.current().unwrap().1, vec![49, 50, 54]);
     }
 
     #[test]
@@ -376,15 +381,15 @@ mod tests {
         iter.next();
         assert!(iter.valid());
 
-        assert_eq!(iter.current().0, vec![97, 98, 99].as_slice());
+        assert_eq!(iter.current().unwrap().0, vec![97, 98, 99].as_slice());
 
         iter.next();
         assert!(iter.valid());
-        assert_eq!(iter.current().0, vec![97, 98, 100].as_slice());
+        assert_eq!(iter.current().unwrap().0, vec![97, 98, 100].as_slice());
 
         iter.prev();
         assert!(iter.valid());
-        assert_eq!(iter.current().0, vec![97, 98, 99].as_slice());
+        assert_eq!(iter.current().unwrap().0, vec![97, 98, 99].as_slice());
 
         iter.prev();
         assert!(!iter.valid());

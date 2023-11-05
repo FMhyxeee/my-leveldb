@@ -260,40 +260,6 @@ pub struct SkipMapIter<'a, C: Comparator + 'a> {
     current: *const Node,
 }
 
-impl<'a, C: Comparator> LdbIterator<'a> for SkipMapIter<'a, C> {
-    fn reset(&mut self) {
-        let new = self.map.iter();
-        self.current = new.current;
-    }
-
-    fn seek(&mut self, key: &[u8]) {
-        let node = self.map.get_greater_or_equal(key);
-        self.current = unsafe { transmute_copy(&node) }
-    }
-
-    fn valid(&self) -> bool {
-        unsafe { !(*self.current).key.is_empty() }
-    }
-
-    fn current(&'a self) -> (&'a Vec<u8>, &'a Vec<u8>) {
-        assert!(self.valid());
-
-        unsafe { (&(*self.current).key, &(*self.current).value) }
-    }
-
-    fn prev(&mut self) -> Option<Self::Item> {
-        // Going after the original implementation here, we just seek to the node before current().
-        let prev = self.map.get_next_smaller(self.current().0);
-        self.current = unsafe { transmute_copy(&prev) };
-
-        if !prev.key.is_empty() {
-            Some(unsafe { (&(*self.current).key, &(*self.current).value) })
-        } else {
-            None
-        }
-    }
-}
-
 impl<'a, C: Comparator + 'a> Iterator for SkipMapIter<'a, C> {
     type Item = (&'a Vec<u8>, &'a Vec<u8>);
 
@@ -308,13 +274,53 @@ impl<'a, C: Comparator + 'a> Iterator for SkipMapIter<'a, C> {
     }
 }
 
+impl<'a, C: Comparator> LdbIterator for SkipMapIter<'a, C> {
+    fn reset(&mut self) {
+        let new = self.map.iter();
+        self.current = new.current;
+    }
+
+    fn seek(&mut self, key: &[u8]) {
+        let node = self.map.get_greater_or_equal(key);
+        self.current = unsafe { transmute_copy(&node) }
+    }
+
+    fn valid(&self) -> bool {
+        unsafe { !(*self.current).key.is_empty() }
+    }
+
+    fn current(&self) -> Option<Self::Item> {
+        if self.valid() {
+            Some(unsafe { (&(*self.current).key, &(*self.current).value) })
+        } else {
+            None
+        }
+    }
+
+    fn prev(&mut self) -> Option<Self::Item> {
+        // Going after the original implementation here, we just seek to the node before current().
+        if let Some(current) = self.current() {
+            let prev = self.map.get_next_smaller(current.0);
+            self.current = unsafe { transmute_copy(&prev) };
+
+            if !prev.key.is_empty() {
+                Some(unsafe { (&(*self.current).key, &(*self.current).value) })
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+}
+
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use crate::types::*;
 
     use super::{SkipMap, StandardComparator};
 
-    fn make_skipmap() -> SkipMap<StandardComparator> {
+    pub fn make_skipmap() -> SkipMap<StandardComparator> {
         let mut skm = SkipMap::new();
         let keys = vec![
             "aba", "abb", "abc", "abd", "abe", "abf", "abg", "abh", "abi", "abj", "abk", "abl",
@@ -435,20 +441,20 @@ mod tests {
         assert!(iter.valid());
         iter.seek("abz".as_bytes());
         assert_eq!(
-            iter.current(),
+            iter.current().unwrap(),
             (&"abz".as_bytes().to_vec(), &"def".as_bytes().to_vec())
         );
 
         iter.seek("ab".as_bytes());
         assert_eq!(
-            iter.current(),
+            iter.current().unwrap(),
             (&"aba".as_bytes().to_vec(), &"def".as_bytes().to_vec())
         );
 
         // go back to beginning
         iter.seek("aba".as_bytes());
         assert_eq!(
-            iter.current(),
+            iter.current().unwrap(),
             (&"aba".as_bytes().to_vec(), &"def".as_bytes().to_vec())
         );
 
@@ -477,7 +483,7 @@ mod tests {
         iter.seek("abc".as_bytes());
         iter.prev();
         assert_eq!(
-            iter.current(),
+            iter.current().unwrap(),
             (
                 "abb".as_bytes().to_vec().as_ref(),
                 "def".as_bytes().to_vec().as_ref()

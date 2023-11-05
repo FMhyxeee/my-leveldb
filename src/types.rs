@@ -19,11 +19,11 @@ pub enum Status {
 
 /// Trait used to influnce how SkipMap determines the order of elements, Use StandardComparator
 /// for the normal implementation using numerical comparison.
-pub trait Comparator: Copy {
+pub trait Comparator: Copy + Default {
     fn cmp(a: &[u8], b: &[u8]) -> Ordering;
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct StandardComparator;
 
 impl Comparator for StandardComparator {
@@ -41,7 +41,7 @@ pub struct Range<'a> {
 /// This works because the iterators used are stateful and keep the last returned element.
 ///
 /// Note: Implementing types are expected to hold `!valid()` before the first call to `next()`
-pub trait LdbIterator<'a>: Iterator {
+pub trait LdbIterator: Iterator {
     // We're emulating LeveDB's Slice tyoe here using actual slices with the lifetime of the iterator.
     // The lifetime of the iterator is usually the one of the backing storage (Block, MemTable, SkipMap...)
     // type Item = (&'a [u8], &'a [u8]);
@@ -52,8 +52,19 @@ pub trait LdbIterator<'a>: Iterator {
     fn reset(&mut self);
     /// Returns true if the iterator is valid.
     fn valid(&self) -> bool;
-    /// Returns current item. Panic if `!valid()`
-    fn current(&'a self) -> Self::Item;
+    /// Returns current item.
+    fn current(&self) -> Option<Self::Item>;
     /// Go to the previous item. Panic if `!valid()`
     fn prev(&mut self) -> Option<Self::Item>;
+
+    /// You should override this with a more efficient solution.
+    fn seek_to_last(&mut self) {
+        self.reset();
+        self.next();
+    }
+
+    fn seek_to_first(&mut self) {
+        self.reset();
+        self.next();
+    }
 }
