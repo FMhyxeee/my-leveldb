@@ -117,13 +117,6 @@ impl<'a, C: Comparator> BlockIter<'a, C> {
         self.key
             .extend_from_slice(&self.block.data[self.offset..self.offset + non_shared]);
     }
-
-    fn reset(&mut self) {
-        self.offset = 0;
-        self.current_restart_ix = 0;
-        self.key.clear();
-        self.val_offset = 0;
-    }
 }
 
 impl<'a, C: Comparator> Iterator for BlockIter<'a, C> {
@@ -157,6 +150,13 @@ impl<'a, C: Comparator> Iterator for BlockIter<'a, C> {
 }
 
 impl<'a, C: 'a + Comparator> LdbIterator<'a> for BlockIter<'a, C> {
+    fn reset(&mut self) {
+        self.offset = 0;
+        self.current_restart_ix = 0;
+        self.key.clear();
+        self.val_offset = 0;
+    }
+
     fn seek(&mut self, to: &[u8]) {
         self.reset();
         // println!("number_restarts is {:?}", self.block.number_restarts());

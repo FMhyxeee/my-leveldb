@@ -48,6 +48,8 @@ pub trait LdbIterator<'a>: Iterator {
 
     /// Seek the iterator to `key` or the next bigger key.
     fn seek(&mut self, key: &[u8]);
+    /// Resets the iterator to the beginning.
+    fn reset(&mut self);
     /// Returns true if the iterator is valid.
     fn valid(&self) -> bool;
     /// Returns current item. Panic if `!valid()`

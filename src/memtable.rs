@@ -215,6 +215,10 @@ impl<'a, C: 'a + Comparator> Iterator for MemtableIterator<'a, C> {
 }
 
 impl<'a, C: 'a + Comparator> LdbIterator<'a> for MemtableIterator<'a, C> {
+    fn reset(&mut self) {
+        self.skipmapiter.reset();
+    }
+
     fn valid(&self) -> bool {
         self.skipmapiter.valid()
     }
