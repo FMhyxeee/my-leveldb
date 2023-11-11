@@ -57,12 +57,6 @@ pub trait LdbIterator: Iterator {
     /// Go to the previous item. Panic if `!valid()`
     fn prev(&mut self) -> Option<Self::Item>;
 
-    /// You should override this with a more efficient solution.
-    fn seek_to_last(&mut self) {
-        self.reset();
-        self.next();
-    }
-
     fn seek_to_first(&mut self) {
         self.reset();
         self.next();
