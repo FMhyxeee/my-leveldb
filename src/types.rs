@@ -46,7 +46,8 @@ pub trait LdbIterator: Iterator {
     // The lifetime of the iterator is usually the one of the backing storage (Block, MemTable, SkipMap...)
     // type Item = (&'a [u8], &'a [u8]);
 
-    /// Seek the iterator to `key` or the next bigger key.
+    /// Seek the iterator to `key` or the next bigger key. If the seek is invalid (past last
+    /// element), the iterator is reset() and not valid.
     fn seek(&mut self, key: &[u8]);
     /// Resets the iterator to the beginning.
     fn reset(&mut self);

@@ -268,6 +268,8 @@ impl<'a, C: 'a + Comparator> LdbIterator for MemtableIterator<'a, C> {
 
 #[cfg(test)]
 mod tests {
+    use core::panic;
+
     use super::*;
 
     fn get_memtable() -> MemTable<StandardComparator> {
@@ -337,14 +339,22 @@ mod tests {
             println!("not found")
         }
 
+        // Smaller sequence number then actual one still produces result
         if let Result::Ok(v) = mt.get(&LookupKey::new("abe".as_bytes(), 122)) {
             assert_eq!(v, "125".as_bytes().to_vec());
         } else {
             panic!("not found");
         }
 
+        // Bigger sequence number doesn't
         if let Result::Ok(_v) = mt.get(&LookupKey::new("abc".as_bytes(), 124)) {
             panic!("found");
+        }
+
+        if let Result::Ok(v) = mt.get(&LookupKey::new("abe".as_bytes(), 122)) {
+            assert_eq!(v, "125".as_bytes());
+        } else {
+            panic!("not found");
         }
     }
 
@@ -357,6 +367,8 @@ mod tests {
 
         iter.next();
         assert!(iter.valid());
+        iter.reset();
+        assert!(!iter.valid())
     }
 
     #[test]
@@ -371,6 +383,22 @@ mod tests {
         iter.seek("abf".as_bytes());
         assert_eq!(iter.current().unwrap().0, vec![97, 98, 102]);
         assert_eq!(iter.current().unwrap().1, vec![49, 50, 54]);
+
+        iter.seek("abc".as_bytes());
+        assert_eq!(iter.current().unwrap().0, vec![97, 98, 99].as_slice());
+        assert_eq!(iter.current().unwrap().1, vec![49, 50, 51].as_slice());
+
+        iter.seek("abx".as_bytes());
+        assert!(!iter.valid());
+        assert!(iter.current().is_none());
+
+        iter.seek("ab0".as_bytes());
+        assert!(iter.valid());
+        assert_eq!(iter.current().unwrap().0, vec![97, 98, 99].as_slice());
+
+        iter.prev();
+        assert!(!iter.valid());
+        assert!(iter.current().is_none());
     }
 
     #[test]
