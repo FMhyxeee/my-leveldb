@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 mod block;
+mod block_cache;
 mod blockhandle;
 mod disk_env;
 mod env;
