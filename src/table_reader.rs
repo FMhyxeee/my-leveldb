@@ -113,3 +113,7 @@ impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
         self.footer.metaindex.offset()
     }
 }
+
+/// This iterator is a `TwoLevelIterator`; it uses an index block in order to get an offset hint
+/// into the data blocks.
+pub struct TableIterator {}
