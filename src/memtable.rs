@@ -39,16 +39,15 @@ impl<C: Comparator> Comparator for MemtableKeyComparator<C> {
     }
 }
 
+/// A LookupKey is the first part of a memtable key, consisting of [keylen: varint32, key: *u8,
+/// tag: u64]
+/// keylen is the length of key plus 8 (for the tag; this for LevelDB compatibility)
 #[derive(Debug)]
 pub struct LookupKey {
     key: Vec<u8>,
     key_offset: usize,
 }
 
-/// Encapsulates a user key + sequence number, which is used for lookups in the internal map
-/// implementation of a MemTable.
-/// Format: [keylen: varint32, key: *u8, tag: u64]
-/// keylen is the length of key plus 8 (for the tag; this for levelDB compatibility)
 impl LookupKey {
     #[allow(unused_assignments)]
     fn new(k: &[u8], s: SequenceNumber) -> LookupKey {
@@ -203,7 +202,6 @@ impl<C: Comparator> MemTable<C> {
     #[allow(unused_variables)]
     pub fn get(&self, key: &LookupKey) -> Result<Vec<u8>, Status> {
         let mut iter = self.map.iter();
-        println!("the key memtable key is {:?}", key.memtable_key());
         iter.seek(key.memtable_key());
 
         if let Some(e) = iter.current() {
@@ -299,7 +297,7 @@ impl<'a, C: 'a + Comparator> LdbIterator for MemtableIterator<'a, C> {
 
             if tag & 0xff == ValueType::TypeValue as u64 {
                 Some((
-                    &foundkey[keyoff..keyoff + keylen],
+                    &foundkey[keyoff..keyoff + keylen + 8],
                     &foundkey[valoff..valoff + vallen],
                 ))
             } else {
@@ -425,11 +423,14 @@ mod tests {
         let mut iter = mt.iter();
 
         assert!(!iter.valid());
-
         iter.next();
         assert!(iter.valid());
+        assert_eq!(
+            iter.current().unwrap().0,
+            vec![97, 98, 99, 1, 120, 0, 0, 0, 0, 0, 0].as_slice()
+        );
         iter.reset();
-        assert!(!iter.valid())
+        assert!(!iter.valid());
     }
 
     #[test]
@@ -453,25 +454,44 @@ mod tests {
 
     #[test]
     fn test_memtable_iterator_reverse() {
-        // let mt = get_memtable();
-        // let mut iter = mt.iter();
+        let mt = get_memtable();
+        let mut iter = mt.iter();
 
-        // iter.next();
-        // assert!(iter.valid());
-        // assert_eq!(iter.current().unwrap().0, vec![97, 98, 99].as_slice());
+        // Bigger sequence number comes first
+        iter.next();
+        assert!(iter.valid());
+        assert_eq!(
+            iter.current().unwrap().0,
+            vec![97, 98, 99, 1, 120, 0, 0, 0, 0, 0, 0].as_slice()
+        );
 
-        // iter.next();
-        // assert!(iter.valid());
-        // assert_eq!(iter.current().unwrap().0, vec![97, 98, 99].as_slice());
+        iter.next();
+        assert!(iter.valid());
+        assert_eq!(
+            iter.current().unwrap().0,
+            vec![97, 98, 99, 1, 115, 0, 0, 0, 0, 0, 0].as_slice()
+        );
 
-        // iter.next();
-        // assert!(iter.valid());
-        // assert_eq!(iter.current().unwrap().0, vec![97, 98, 100].as_slice());
+        iter.next();
+        assert!(iter.valid());
+        assert_eq!(
+            iter.current().unwrap().0,
+            vec![97, 98, 100, 1, 121, 0, 0, 0, 0, 0, 0].as_slice()
+        );
 
-        // iter.prev();
-        // iter.prev();
-        // assert!(iter.valid());
-        // assert_eq!(iter.current().unwrap().0, vec![97, 98, 99].as_slice());
+        iter.prev();
+        assert!(iter.valid());
+        assert_eq!(
+            iter.current().unwrap().0,
+            vec![97, 98, 99, 1, 115, 0, 0, 0, 0, 0, 0].as_slice()
+        );
+
+        iter.prev();
+        assert!(iter.valid());
+        assert_eq!(
+            iter.current().unwrap().0,
+            vec![97, 98, 99, 1, 120, 0, 0, 0, 0, 0, 0].as_slice()
+        );
 
         // iter.prev();
         // assert!(!iter.valid());
