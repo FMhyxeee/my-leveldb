@@ -88,7 +88,7 @@ impl<C: Comparator> SkipMap<C> {
         loop {
             unsafe {
                 if let Some(next) = (*current).skips[level] {
-                    let ord = C::cmp(&(*next).key, key);
+                    let ord = self.cmp.cmp(&(*next).key, key);
 
                     match ord {
                         Ordering::Less => {
@@ -112,7 +112,7 @@ impl<C: Comparator> SkipMap<C> {
             level -= 1;
         }
         unsafe {
-            if C::cmp(&(*current).key, key) == Ordering::Less || current.is_null() {
+            if self.cmp.cmp(&(*current).key, key) == Ordering::Less || current.is_null() {
                 None
             } else {
                 Some(&(*current))
@@ -130,7 +130,7 @@ impl<C: Comparator> SkipMap<C> {
         loop {
             unsafe {
                 if let Some(next) = (*current).skips[level] {
-                    let ord = C::cmp((*next).key.as_slice(), key);
+                    let ord = self.cmp.cmp((*next).key.as_slice(), key);
 
                     if ord == Ordering::Less {
                         current = next;
@@ -146,7 +146,7 @@ impl<C: Comparator> SkipMap<C> {
         }
 
         unsafe {
-            if C::cmp(&(*current).key, key) != Ordering::Less || current.is_null() {
+            if self.cmp.cmp(&(*current).key, key) != Ordering::Less || current.is_null() {
                 None
             } else {
                 println!("{:?}", (&(*current).key, key));
@@ -173,7 +173,7 @@ impl<C: Comparator> SkipMap<C> {
             unsafe {
                 if let Some(next) = (*current).skips[level] {
                     // If the wanted position is after the current node
-                    let ord = C::cmp(&(*next).key, &key);
+                    let ord = self.cmp.cmp(&(*next).key, &key);
 
                     assert!(ord != Ordering::Equal, "No duplicates allowed");
 

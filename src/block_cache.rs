@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    mem::{replace, swap, transmute_copy},
+    mem::{swap, transmute_copy},
 };
 
 use crate::block::BlockContents;
@@ -47,7 +47,7 @@ impl<T> LRUList<T> {
             // Set up the node after the new one
             self.head.next.as_mut().unwrap().prev = Some(newp);
             // Replace head.next with None and set the new node's next to that
-            new.next = replace(&mut self.head.next, None);
+            new.next = self.head.next.take();
             self.head.next = Some(new);
 
             newp
@@ -71,17 +71,12 @@ impl<T> LRUList<T> {
 
     fn remove_last(&mut self) -> Option<T> {
         if self.head.prev.is_some() {
-            let mut lasto = unsafe {
-                replace(
-                    &mut (*((*self.head.prev.unwrap()).prev.unwrap())).next,
-                    None,
-                )
-            };
+            let mut lasto = unsafe { (*((*self.head.prev.unwrap()).prev.unwrap())).next.take() };
 
             if let Some(ref mut last) = lasto {
                 self.head.prev = last.prev;
                 self.count -= 1;
-                replace(&mut last.data, None)
+                last.data.take()
             } else {
                 None
             }
