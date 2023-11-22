@@ -7,6 +7,7 @@ use crate::{
     blockhandle::BlockHandle,
     filter::{FilterPolicy, NoFilterPolicy},
     filter_block::FilterBlockBuilder,
+    key_types::InternalKey,
     options::{CompressionType, Options},
     Comparator,
 };
@@ -16,7 +17,11 @@ pub const FULL_FOOTER_LENGTH: usize = FOOTER_LENGTH + 8;
 pub const MAGIC_FOOTER_NUMBER: u64 = 0xdb4775248b80fb57;
 pub const MAGIC_FOOTER_ENCODED: [u8; 8] = [0x57, 0xfb, 0x80, 0x8b, 0x24, 0x75, 0x47, 0xdb];
 
-fn find_shortest_sep<C: Comparator>(c: &C, lo: &[u8], hi: &[u8]) -> Vec<u8> {
+fn find_shortest_sep<'a, C: Comparator>(
+    c: &C,
+    lo: InternalKey<'a>,
+    hi: InternalKey<'a>,
+) -> Vec<u8> {
     let min = if lo.len() < hi.len() {
         lo.len()
     } else {
@@ -148,7 +153,7 @@ impl<'a, C: Comparator, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, C,
         self.num_entries
     }
 
-    pub fn add(&mut self, key: &'a [u8], val: &[u8]) {
+    pub fn add(&mut self, key: InternalKey<'a>, val: &[u8]) {
         assert!(self.data_block.is_some());
         assert!(
             self.num_entries == 0 || self.cmp.cmp(&self.prev_block_last_key, key) == Ordering::Less
@@ -170,7 +175,7 @@ impl<'a, C: Comparator, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, C,
 
     /// Writes an index entry for the current data_block where `next_key` is the first key of the
     /// next block.
-    fn write_data_block(&mut self, next_key: &[u8]) {
+    fn write_data_block(&mut self, next_key: InternalKey) {
         assert!(self.data_block.is_some());
 
         let block = self.data_block.take().unwrap();

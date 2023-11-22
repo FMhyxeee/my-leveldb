@@ -9,6 +9,7 @@ mod env_common;
 mod error;
 mod filter;
 mod filter_block;
+mod key_types;
 mod log;
 mod memtable;
 mod merging_iter;
