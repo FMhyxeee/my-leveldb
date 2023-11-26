@@ -175,6 +175,8 @@ impl<'a, C: Comparator, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, C,
 
     /// Writes an index entry for the current data_block where `next_key` is the first key of the
     /// next block.
+    /// Writes an index entry for the current data_block where `next_key` is the first key of the
+    /// next block.
     fn write_data_block(&mut self, next_key: InternalKey) {
         assert!(self.data_block.is_some());
 
@@ -217,9 +219,11 @@ impl<'a, C: Comparator, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, C,
         let _ = self.dst.write(&[t as u8; 1]);
         let _ = self.dst.write(&buf);
 
+        let handle = BlockHandle::new(self.offset, c.len());
+
         self.offset += c.len() + 1 + buf.len();
 
-        BlockHandle::new(self.offset, c.len())
+        handle
     }
 
     pub fn finish(mut self) {
@@ -249,7 +253,8 @@ impl<'a, C: Comparator, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, C,
         }
 
         // write metaindex block
-        let meta_ix_handle = self.write_block(meta_ix_block.finish(), ctype);
+        let meta_ix = meta_ix_block.finish();
+        let meta_ix_handle = self.write_block(meta_ix, ctype);
 
         // write index block
         let index_cont = self.index_block.take().unwrap().finish();

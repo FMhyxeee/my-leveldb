@@ -78,11 +78,12 @@ impl<C: Comparator> BlockIter<C> {
     }
 
     fn number_restarts(&self) -> usize {
-        ((self.block.len() - self.restarts_off) / 4) - 1
+        u32::decode_fixed(&self.block[self.block.len() - 4..]) as usize
     }
 
     fn get_restart_point(&self, ix: usize) -> usize {
-        u32::decode_fixed(&self.block[self.restarts_off + ix * 4..]) as usize
+        let restart = self.restarts_off + 4 * ix;
+        u32::decode_fixed(&self.block[restart..restart + 4]) as usize
     }
 }
 
@@ -123,7 +124,6 @@ impl<C: Comparator> Iterator for BlockIter<C> {
         if self.current_entry_offset >= self.restarts_off {
             return None;
         }
-
         let (shared, non_shared, valsize) = self.parse_entry();
         self.assemble_key(shared, non_shared);
 
@@ -131,13 +131,11 @@ impl<C: Comparator> Iterator for BlockIter<C> {
         self.offset = self.val_offset + valsize;
 
         let num_restarts = self.number_restarts();
-
         while self.current_restart_ix + 1 < num_restarts
             && self.get_restart_point(self.current_restart_ix + 1) < self.current_entry_offset
         {
             self.current_restart_ix += 1;
         }
-
         Some((
             self.key.clone(),
             Vec::from(&self.block[self.val_offset..self.val_offset + valsize]),
@@ -187,7 +185,11 @@ impl<C: Comparator> LdbIterator for BlockIter<C> {
         self.reset();
 
         let mut left = 0;
-        let mut right = self.number_restarts() - 1;
+        let mut right = if self.number_restarts() == 0 {
+            0
+        } else {
+            self.number_restarts() - 1
+        };
 
         // Do a binary search over the restart points.
         while left < right {
@@ -314,7 +316,7 @@ impl<C: Comparator> BlockBuilder<C> {
         self.buffer.extend_from_slice(&buf[0..sz]);
         sz = non_shared.encode_var(&mut buf[..]);
         self.buffer.extend_from_slice(&buf[0..sz]);
-        sz = val.len().encode_var(&mut buf[0..sz]);
+        sz = val.len().encode_var(&mut buf[..]);
         self.buffer.extend_from_slice(&buf[0..sz]);
 
         self.buffer.extend_from_slice(&key[shared..]);

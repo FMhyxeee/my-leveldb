@@ -1,32 +1,45 @@
 use std::io::{Read, Result, Seek, SeekFrom};
 
 use crate::{
-    block::BlockIter, blockhandle::BlockHandle, filter::FilterPolicy,
-    filter_block::FilterBlockReader, options::Options, table_builder, types::LdbIterator,
+    block::BlockIter,
+    blockhandle::BlockHandle,
+    filter::FilterPolicy,
+    filter_block::FilterBlockReader,
+    options::Options,
+    table_builder::{self, Footer},
+    types::LdbIterator,
     Comparator,
 };
 
-struct TableFooter {
-    metaindex: BlockHandle,
-    index: BlockHandle,
+/// Reads the table footer.
+fn read_footer<R: Read + Seek>(f: &mut R, size: usize) -> Result<Footer> {
+    f.seek(SeekFrom::Start(
+        (size - table_builder::FULL_FOOTER_LENGTH) as u64,
+    ))?;
+    let mut buf = [0; table_builder::FULL_FOOTER_LENGTH];
+    f.read_exact(&mut buf)?;
+    Ok(Footer::decode(&buf))
 }
 
-impl TableFooter {
-    fn parse(footer: &[u8]) -> TableFooter {
-        assert_eq!(footer.len(), table_builder::FULL_FOOTER_LENGTH);
-        assert_eq!(
-            &footer[footer.len() - 8..],
-            table_builder::MAGIC_FOOTER_ENCODED
-        );
+fn read_bytes<R: Read + Seek>(f: &mut R, location: &BlockHandle) -> Result<Vec<u8>> {
+    f.seek(SeekFrom::Start(location.offset() as u64))?;
 
-        let (mi, n1) = BlockHandle::decode(footer);
-        let (ix, _) = BlockHandle::decode(&footer[n1..]);
+    let mut buf = Vec::new();
+    buf.resize(location.size(), 0);
 
-        TableFooter {
-            metaindex: mi,
-            index: ix,
-        }
-    }
+    f.read_exact(&mut buf[0..location.size()])?;
+
+    Ok(buf)
+}
+
+/// Reads a block at location.
+fn read_block<R: Read + Seek, C: Comparator>(
+    cmp: &C,
+    f: &mut R,
+    location: &BlockHandle,
+) -> Result<BlockIter<C>> {
+    let buf = read_bytes(f, location)?;
+    Ok(BlockIter::new(buf, *cmp))
 }
 
 pub struct Table<R: Read + Seek, C: Comparator, FP: FilterPolicy> {
@@ -36,17 +49,17 @@ pub struct Table<R: Read + Seek, C: Comparator, FP: FilterPolicy> {
     opt: Options,
     cmp: C,
 
-    footer: TableFooter,
+    footer: Footer,
     indexblock: BlockIter<C>,
     filters: Option<FilterBlockReader<FP>>,
 }
 
 impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
     pub fn new(mut file: R, size: usize, cmp: C, fp: FP, opt: Options) -> Result<Table<R, C, FP>> {
-        let footer = Table::<R, C, FP>::read_footer(&mut file, size).unwrap();
+        let footer = read_footer(&mut file, size).unwrap();
 
-        let indexblock = Table::<R, C, FP>::read_block(&cmp, &mut file, &footer.index)?;
-        let mut metaindexblock = Table::<R, C, FP>::read_block(&cmp, &mut file, &footer.metaindex)?;
+        let indexblock = read_block(&cmp, &mut file, &footer.index)?;
+        let mut metaindexblock = read_block(&cmp, &mut file, &footer.meta_index)?;
 
         let mut filter_block_reader = None;
 
@@ -59,9 +72,8 @@ impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
             let filter_block_location = BlockHandle::decode(&val).0;
 
             if filter_block_location.size() > 0 {
-                let filter_block =
-                    Table::<R, C, FP>::read_block(&cmp, &mut file, &filter_block_location)?;
-                filter_block_reader = Some(FilterBlockReader::new(fp, filter_block.obtain()));
+                let buf = read_bytes(&mut file, &filter_block_location)?;
+                filter_block_reader = Some(FilterBlockReader::new_owned(fp, buf));
             }
         }
 
@@ -78,30 +90,8 @@ impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
         })
     }
 
-    /// Reads the table footer.
-    fn read_footer(f: &mut R, size: usize) -> Result<TableFooter> {
-        f.seek(SeekFrom::Start(
-            (size - table_builder::FULL_FOOTER_LENGTH) as u64,
-        ))?;
-        let mut buf = [0; table_builder::FULL_FOOTER_LENGTH];
-        f.read_exact(&mut buf)?;
-        Ok(TableFooter::parse(&buf))
-    }
-
-    /// Reads a block at location.
-    fn read_block(cmp: &C, f: &mut R, location: &BlockHandle) -> Result<BlockIter<C>> {
-        f.seek(SeekFrom::Start(location.offset() as u64))?;
-
-        let mut buf = Vec::new();
-        buf.resize(location.size(), 0);
-
-        f.read_exact(&mut buf[0..location.size()])?;
-
-        Ok(BlockIter::new(buf, *cmp))
-    }
-
     fn read_block_(&mut self, location: &BlockHandle) -> Result<BlockIter<C>> {
-        Table::<R, C, FP>::read_block(&self.cmp, &mut self.file, location)
+        read_block(&self.cmp, &mut self.file, location)
     }
 
     /// Returns the offset of the block that contains `key`
@@ -116,7 +106,18 @@ impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
             return location.offset();
         }
 
-        self.footer.metaindex.offset()
+        self.footer.meta_index.offset()
+    }
+
+    // Iterators read from the file; thus only one iterator can be borrowed (mutably) per scope
+    fn iter(&mut self) -> TableIterator<R, C, FP> {
+        let mut iter = TableIterator {
+            current_block: self.indexblock.clone(), // just for filling in here
+            index_block: self.indexblock.clone(),
+            table: self,
+        };
+        iter.skip_to_next_entry(); // initialize current_block
+        iter
     }
 }
 
@@ -155,6 +156,73 @@ impl<'a, C: Comparator, R: Read + Seek, FP: FilterPolicy> Iterator for TableIter
             self.next()
         } else {
             None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use crate::{filter::BloomPolicy, table_builder::TableBuilder, types::StandardComparator};
+
+    use super::*;
+
+    fn build_data() -> Vec<(&'static str, &'static str)> {
+        vec![
+            ("abc", "def"),
+            ("abd", "dee"),
+            ("bcd", "asa"),
+            ("bsr", "a00"),
+            ("xyz", "xxx"),
+            ("xzz", "yyy"),
+            ("zzz", "111"),
+        ]
+    }
+
+    fn build_table() -> (Vec<u8>, usize) {
+        let mut d = Vec::with_capacity(512);
+        let opt = Options {
+            block_restart_interval: 2,
+            ..Default::default()
+        };
+
+        {
+            let mut b = TableBuilder::new(opt, StandardComparator, &mut d, BloomPolicy::new(4));
+            let data = build_data();
+
+            for &(k, v) in data.iter() {
+                b.add(k.as_bytes(), v.as_bytes());
+            }
+
+            b.finish();
+        }
+
+        let size = d.len();
+
+        (d, size)
+    }
+
+    #[test]
+    fn test_table_iterator() {
+        let (src, size) = build_table();
+        let data = build_data();
+
+        let mut table = Table::new(
+            Cursor::new(&src as &[u8]),
+            size,
+            StandardComparator,
+            BloomPolicy::new(4),
+            Options::default(),
+        )
+        .unwrap();
+        let iter = table.iter();
+
+        for (i, (k, v)) in iter.enumerate() {
+            assert_eq!(
+                (data[i].0.as_bytes(), data[i].1.as_bytes()),
+                (k.as_ref(), v.as_ref())
+            );
         }
     }
 }
