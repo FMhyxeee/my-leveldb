@@ -385,7 +385,6 @@ mod tests {
     #[test]
     fn test_table_iterator_seek() {
         let (src, size) = build_table();
-        let _ = build_data();
 
         let mut table = Table::new(
             Cursor::new(&src as &[u8]),

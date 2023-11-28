@@ -3,8 +3,7 @@ use std::{
     mem::{swap, transmute_copy},
 };
 
-use crate::block::BlockContents;
-
+// No clone, no copy! That asserts that an LRUHandle exists only once.
 type LRUHandle<T> = *mut LRUNode<T>;
 
 struct LRUNode<T> {
@@ -85,6 +84,26 @@ impl<T> LRUList<T> {
         }
     }
 
+    fn remove(&mut self, node_handle: LRUHandle<T>) -> T {
+        unsafe {
+            // If has next
+            if let Some(ref mut nextp) = (*node_handle).next {
+                swap(&mut nextp.prev, &mut (*node_handle).prev);
+            }
+            // If has prev
+            if let Some(ref mut prevp) = (*node_handle).prev {
+                // swap prev.next
+                // (node_handle will own itself now)
+                swap(&mut (**prevp).next, &mut (*node_handle).next);
+            }
+
+            self.count -= 1;
+            // node_handle now only has references/objects that point to itself,
+            // so it's safe to drop
+            (*node_handle).data.take().unwrap()
+        }
+    }
+
     /// Reinserts the referenced node at the front.
     fn reinsert_front(&mut self, node_handle: LRUHandle<T>) {
         unsafe {
@@ -132,19 +151,187 @@ impl<T> LRUList<T> {
     }
 }
 
-type CacheHandle = usize;
+pub type CacheKey = Vec<u8>;
+type CacheEntry<T> = (T, LRUHandle<CacheKey>);
 
 /// Implementation of `SharedLRUCache`.
 /// Based on a HashMap; the elements are linked in order to support the LRU ordering.
-pub struct BlockCache {
-    list: LRUList<CacheHandle>,
-    map: HashMap<CacheHandle, BlockContents>,
-    handle_counter: CacheHandle,
+pub struct Cache<T> {
+    // note: CacheKeys (Vec<u8>) are duplicated between list and map. If this turns out to be a
+    // performance bottleneck, another layer in indirection™ can solve this by mapping the key to a
+    // numeric handle that key both list and map.
+    list: LRUList<CacheKey>,
+    map: HashMap<CacheKey, CacheEntry<T>>,
+    cap: usize,
+}
+
+impl<T> Cache<T> {
+    pub fn new(capacity: usize) -> Cache<T> {
+        assert!(capacity > 0);
+        Cache {
+            list: LRUList::new(),
+            map: HashMap::with_capacity(1024),
+            cap: capacity,
+        }
+    }
+
+    /// How many the cache currently contains
+    pub fn count(&self) -> usize {
+        self.list.count()
+    }
+
+    /// The capacity of this cache
+    pub fn cap(&self) -> usize {
+        self.cap
+    }
+
+    /// Insert a new element into the cache. The returned `CacheHandle` can be used for further
+    /// operations on that element.
+    /// If the capacity has been reached, the least recently used element is removed form the
+    /// cache.
+    pub fn insert(&mut self, key: &CacheKey, elem: T) {
+        if self.list.count() >= self.cap {
+            if let Some(removed_key) = self.list.remove_last() {
+                assert!(self.map.remove(&removed_key).is_some());
+            } else {
+                panic!("could not remove_last(); bug!");
+            }
+        }
+
+        let lru_handle = self.list.insert(key.clone());
+        self.map.insert(key.clone(), (elem, lru_handle));
+    }
+
+    /// Retrieve an element from the cache.
+    /// If the element has been preempted from the cache in the meantime, this returns None.
+    pub fn get<'a>(&'a mut self, key: &CacheKey) -> Option<&'a T> {
+        match self.map.get(key) {
+            None => None,
+            Some((elem, lru_handle)) => {
+                self.list.reinsert_front(*lru_handle);
+                Some(elem)
+            }
+        }
+    }
+
+    /// Remove an element from the cache (for invalidation).
+    pub fn remove(&mut self, key: &CacheKey) -> Option<T> {
+        match self.map.remove(key) {
+            None => None,
+            Some((elem, lru_handle)) => {
+                self.list.remove(lru_handle);
+                Some(elem)
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::block_cache::LRUList;
+
+    use super::Cache;
+
+    #[test]
+    fn test_blockcache_cache_add_rm() {
+        let mut cache = Cache::new(128);
+
+        let h_123 = "aaa".as_bytes().to_vec();
+        let h_521 = "aab".as_bytes().to_vec();
+        let h_372 = "aac".as_bytes().to_vec();
+        let h_332 = "aad".as_bytes().to_vec();
+        let h_899 = "aae".as_bytes().to_vec();
+
+        cache.insert(&h_123, 123);
+        cache.insert(&h_332, 332);
+        cache.insert(&h_521, 521);
+        cache.insert(&h_372, 372);
+        cache.insert(&h_899, 899);
+
+        assert_eq!(cache.count(), 5);
+
+        assert_eq!(cache.get(&h_123), Some(&123));
+        assert_eq!(cache.get(&h_372), Some(&372));
+
+        assert_eq!(cache.remove(&h_521), Some(521));
+        assert_eq!(cache.get(&h_521), None);
+        assert_eq!(cache.remove(&h_521), None);
+
+        assert_eq!(cache.count(), 4);
+    }
+
+    #[test]
+    fn test_blockcache_cache_capacity() {
+        let mut cache = Cache::new(3);
+
+        let h_123 = "aaa".as_bytes().to_vec();
+        let h_521 = "aab".as_bytes().to_vec();
+        let h_372 = "aac".as_bytes().to_vec();
+        let h_332 = "aad".as_bytes().to_vec();
+        let h_899 = "aae".as_bytes().to_vec();
+
+        cache.insert(&h_123, 123);
+        cache.insert(&h_332, 332);
+        cache.insert(&h_521, 521);
+        cache.insert(&h_372, 372);
+        cache.insert(&h_899, 899);
+
+        assert_eq!(cache.count(), 3);
+
+        assert_eq!(cache.get(&h_123), None);
+        assert_eq!(cache.get(&h_332), None);
+        assert_eq!(cache.get(&h_521), Some(&521));
+        assert_eq!(cache.get(&h_372), Some(&372));
+        assert_eq!(cache.get(&h_899), Some(&899));
+    }
+
+    #[test]
+    fn test_blockcache_lru_remove() {
+        let mut lru = LRUList::<usize>::new();
+
+        let h_56 = lru.insert(56);
+        lru.insert(22);
+        lru.insert(223);
+        let h_244 = lru.insert(244);
+        lru.insert(1111);
+        let h_12 = lru.insert(12);
+
+        assert_eq!(lru.count(), 6);
+        assert_eq!(244, lru.remove(h_244));
+        assert_eq!(lru.count(), 5);
+        assert_eq!(12, lru.remove(h_12));
+        assert_eq!(lru.count(), 4);
+        assert_eq!(56, lru.remove(h_56));
+        assert_eq!(lru.count(), 3);
+    }
+
+    #[test]
+    fn test_block_cache_add_em() {
+        let mut cache = Cache::new(128);
+
+        let h_123 = "aaa".as_bytes().to_vec();
+        let h_521 = "aab".as_bytes().to_vec();
+        let h_372 = "aac".as_bytes().to_vec();
+        let h_332 = "aad".as_bytes().to_vec();
+        let h_899 = "aae".as_bytes().to_vec();
+
+        cache.insert(&h_123, 123);
+        cache.insert(&h_332, 332);
+        cache.insert(&h_521, 521);
+        cache.insert(&h_372, 372);
+        cache.insert(&h_899, 899);
+
+        assert_eq!(cache.count(), 5);
+        assert_eq!(cache.get(&h_123), Some(&123));
+        assert_eq!(cache.get(&h_372), Some(&372));
+        assert_eq!(cache.remove(&h_521), Some(521));
+        assert_eq!(cache.get(&h_521), None);
+        assert_eq!(cache.remove(&h_521), None);
+        assert_eq!(cache.count(), 4);
+    }
+
+    #[test]
+    fn test_block_cache_capacity() {}
 
     #[test]
     fn test_blockcache_lru_1() {
@@ -195,6 +382,28 @@ mod tests {
         assert_eq!(lru.remove_last(), Some(56));
         assert_eq!(lru.remove_last(), Some(244));
         assert_eq!(lru.remove_last(), Some(22));
+    }
+
+    #[test]
+    fn test_blockcache_lru_reinsert_2() {
+        let mut lru = LRUList::<usize>::new();
+
+        let handles = vec![
+            lru.insert(0),
+            lru.insert(1),
+            lru.insert(2),
+            lru.insert(3),
+            lru.insert(4),
+            lru.insert(5),
+            lru.insert(6),
+            lru.insert(7),
+            lru.insert(8),
+        ];
+
+        for (i, item) in handles.iter().enumerate().take(9) {
+            lru.reinsert_front(*item);
+            assert_eq!(lru._testing_head_ref().copied(), Some(i));
+        }
     }
 
     #[test]
