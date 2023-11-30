@@ -70,8 +70,9 @@ pub trait LdbIterator: Iterator {
 /// Descsribes a file on disk
 #[derive(Clone, Debug, PartialEq)]
 pub struct FileMetaData {
-    pub allowed_seek: isize,
+    pub allowed_seeks: isize,
     pub num: u64,
+    pub size: u64,
     // these are in InternalKey format:
     pub smallest: Vec<u8>,
     pub largest: Vec<u8>,
