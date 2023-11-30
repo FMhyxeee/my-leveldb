@@ -129,8 +129,9 @@ impl VersionEdit {
         let mut buf = Vec::with_capacity(256);
 
         if let Some(ref cmp) = self.comparator {
-            let _ = buf.write_varint(EditTag::Comparator as u32).is_ok(); // swallow errors, because it's a pure in-memory write
-                                                                          // data is prefixed by a varint32 describing the length of the following chunk
+            // swallow errors, because it's a pure in-memory write
+            let _ = buf.write_varint(EditTag::Comparator as u32).is_ok();
+            // data is prefixed by a varint32 describing the length of the following chunk
             let _ = buf.write_varint(cmp.len()).is_ok();
             let _ = buf.write(cmp.as_bytes()).is_ok();
         }
