@@ -228,7 +228,7 @@ impl<T> Cache<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::block_cache::LRUList;
+    use crate::cache::LRUList;
 
     use super::Cache;
 

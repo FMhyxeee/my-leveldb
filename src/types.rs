@@ -1,3 +1,5 @@
+//! A collection of fundamentail and/or simple types used by other modules
+
 use std::cmp::Ordering;
 
 pub enum ValueType {
@@ -8,6 +10,7 @@ pub enum ValueType {
 /// Represents a sequence number of a single entry.
 pub type SequenceNumber = u64;
 
+#[derive(Clone, Debug)]
 pub enum Status {
     OK,
     NotFound(String),
@@ -62,4 +65,14 @@ pub trait LdbIterator: Iterator {
         self.reset();
         self.next();
     }
+}
+
+/// Descsribes a file on disk
+#[derive(Clone, Debug, PartialEq)]
+pub struct FileMetaData {
+    pub allowed_seek: isize,
+    pub num: u64,
+    // these are in InternalKey format:
+    pub smallest: Vec<u8>,
+    pub largest: Vec<u8>,
 }
