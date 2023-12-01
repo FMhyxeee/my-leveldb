@@ -175,14 +175,12 @@ impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
 
     // Iterators read from the file; thus only one iterator can be borrowed (mutably) per scope
     fn iter(&mut self) -> TableIterator<R, C, FP> {
-        let mut iter = TableIterator {
+        TableIterator {
             current_block: self.indexblock.iter(), // just for filling in here
             index_block: self.indexblock.iter(),
             table: self,
             init: false,
-        };
-        iter.skip_to_next_entry(); // initialize current_block
-        iter
+        }
     }
 }
 
@@ -198,11 +196,11 @@ pub struct TableIterator<'a, R: 'a + Read + Seek, C: 'a + Comparator, FP: 'a + F
 impl<'a, C: Comparator, R: Read + Seek, FP: FilterPolicy> TableIterator<'a, R, C, FP> {
     // Skips to the entry referenced by the next index block.
     // This is called once a block has run out of entries.
-    fn skip_to_next_entry(&mut self) -> bool {
+    fn skip_to_next_entry(&mut self) -> Result<bool> {
         if let Some((_key, val)) = self.index_block.next() {
-            self.load_block(&val).is_ok()
+            self.load_block(&val).map(|_| true)
         } else {
-            false
+            Ok(false)
         }
     }
 
@@ -219,10 +217,17 @@ impl<'a, C: Comparator, R: Read + Seek, FP: FilterPolicy> Iterator for TableIter
     type Item = (Vec<u8>, Vec<u8>);
 
     fn next(&mut self) -> Option<Self::Item> {
+        if !self.init {
+            self.init = true;
+            if self.skip_to_next_entry().is_err() {
+                return None;
+            }
+        }
+
         self.init = true;
         if let Some((key, val)) = self.current_block.next() {
             Some((key, val))
-        } else if self.skip_to_next_entry() {
+        } else if self.skip_to_next_entry().unwrap_or(false) {
             self.next()
         } else {
             None
@@ -287,7 +292,6 @@ impl<'a, C: Comparator, R: Read + Seek, FP: FilterPolicy> LdbIterator
     fn reset(&mut self) {
         self.index_block.reset();
         self.init = false;
-        self.skip_to_next_entry();
     }
 
     // This iterator is special in that it's valid even before the first call to next(). It behaves
@@ -297,12 +301,18 @@ impl<'a, C: Comparator, R: Read + Seek, FP: FilterPolicy> LdbIterator
     }
 
     fn current(&self) -> Option<Self::Item> {
-        self.current_block.current()
+        if self.init {
+            self.current_block.current()
+        } else {
+            None
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+
+    use std::io::Cursor;
 
     use crate::{filter::BloomPolicy, table_builder::TableBuilder, types::StandardComparator};
 
@@ -324,7 +334,7 @@ mod tests {
         let mut d = Vec::with_capacity(512);
         let opt = Options {
             block_restart_interval: 2,
-            block_size: 64,
+            block_size: 32,
             ..Default::default()
         };
 
@@ -345,27 +355,62 @@ mod tests {
     }
 
     // #[test]
-    // fn test_table_iterator_fwd() {
-    //     let (src, size) = build_table();
-    //     let data = build_data();
+    // fn test_table_reader_checksum() {
+    //     let (mut src, size) = build_table();
+    //     println!("{}", size);
 
-    //     let mut table = Table::new(
-    //         Cursor::new(&src as &[u8]),
-    //         size,
-    //         StandardComparator,
-    //         BloomPolicy::new(4),
-    //         Options::default(),
-    //     )
-    //     .unwrap();
-    //     let iter = table.iter();
+    //     src[45] = 0;
 
-    //     for (i, (k, v)) in iter.enumerate() {
-    //         assert_eq!(
-    //             (data[i].0.as_bytes(), data[i].1.as_bytes()),
-    //             (k.as_ref(), v.as_ref())
-    //         );
+    //     let mut table = Table::new(Cursor::new(&src as &[u8]),
+    //                                size,
+    //                                StandardComparator,
+    //                                BloomPolicy::new(4),
+    //                                Options::default())
+    //         .unwrap();
+    //     {
+    //         let iter = table.iter();
+    //         // Last block is skipped
+    //         assert_eq!(iter.count(), 3);
+
+    //     }
+
+    //     {
+    //         let iter = table.iter();
+
+    //         for (k, _) in iter {
+    //             if k == build_data()[2].0.as_bytes() {
+    //                 return;
+    //             }
+    //         }
+
+    //         panic!("Should have hit 3rd record in table!");
     //     }
     // }
+
+    #[test]
+    fn test_table_iterator_fwd() {
+        let (src, size) = build_table();
+        let data = build_data();
+
+        let mut table = Table::new(
+            Cursor::new(&src as &[u8]),
+            size,
+            StandardComparator,
+            BloomPolicy::new(4),
+            Options::default(),
+        )
+        .unwrap();
+        let iter = table.iter();
+
+        for (i, (k, v)) in iter.enumerate() {
+            assert_eq!(
+                (data[i].0.as_bytes(), data[i].1.as_bytes()),
+                (k.as_ref(), v.as_ref())
+            );
+        }
+
+        println!("tot len: {}", data.len());
+    }
 
     // #[test]
     // fn test_table_iterator_state_behavior() {
@@ -387,6 +432,7 @@ mod tests {
     //     assert!(!iter.valid());
     //     assert!(iter.current().is_none());
 
+    //     let first = iter.current();
     //     assert!(iter.next().is_some());
     //     assert!(iter.valid());
     //     assert!(iter.current().is_some());
@@ -398,6 +444,7 @@ mod tests {
     //     iter.reset();
     //     assert!(!iter.valid());
     //     assert!(iter.current().is_none());
+    //     assert_eq!(first, iter.next());
     // }
 
     // #[test]
