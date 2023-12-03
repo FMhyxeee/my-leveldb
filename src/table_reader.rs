@@ -110,16 +110,16 @@ impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
         let indexblock = read_block(&cmp, &mut file, &footer.index)?;
         let metaindexblock = read_block(&cmp, &mut file, &footer.meta_index)?;
 
-        // if !indexblock.verify() || !metaindexblock.verify() {
-        //     return Err(io::Error::new(
-        //         io::ErrorKind::InvalidData,
-        //         "Indexblock/Metaindexblock failed verification",
-        //     ));
-        // }
+        if !indexblock.verify() || !metaindexblock.verify() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Indexblock/Metaindexblock failed verification",
+            ));
+        }
 
+        // Open filter block for reading
         let mut filter_block_reader = None;
-        let mut filter_name = "filter.".as_bytes().to_vec();
-        filter_name.extend_from_slice(fp.name().as_bytes());
+        let filter_name = format!("filter.{}", fp.name()).as_bytes().to_vec();
 
         let mut metaindexiter = metaindexblock.block.iter();
 
@@ -178,6 +178,7 @@ impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
     fn iter(&mut self) -> TableIterator<R, C, FP> {
         let mut iter = TableIterator {
             current_block: self.indexblock.iter(), // just for filling in here
+            current_block_off: 0,
             index_block: self.indexblock.iter(),
             table: self,
             init: false,
@@ -208,6 +209,7 @@ impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
 pub struct TableIterator<'a, R: 'a + Read + Seek, C: 'a + Comparator, FP: 'a + FilterPolicy> {
     table: &'a mut Table<R, C, FP>,
     current_block: BlockIter<C>,
+    current_block_off: usize,
     index_block: BlockIter<C>,
     init: bool,
 }
@@ -228,6 +230,7 @@ impl<'a, C: Comparator, R: Read + Seek, FP: FilterPolicy> TableIterator<'a, R, C
         let (new_block_handle, _) = BlockHandle::decode(handle);
         let block = self.table.read_block(&new_block_handle)?;
         self.current_block = block.block.iter();
+        self.current_block_off = new_block_handle.offset();
         Ok(())
     }
 }
@@ -365,6 +368,45 @@ mod tests {
 
     #[test]
     #[ignore]
+    fn test_table_reader_checksum() {
+        let (mut src, size) = build_table();
+        println!("{}", size);
+
+        src[45] = 0;
+
+        let mut table = Table::new(
+            Cursor::new(&src as &[u8]),
+            size,
+            StandardComparator,
+            BloomPolicy::new(4),
+            Options::default(),
+        )
+        .unwrap();
+
+        assert!(table.filters.is_some());
+        assert_eq!(table.filters.as_ref().unwrap().num(), 1);
+
+        {
+            let iter = table.iter();
+            // Last block is skipped
+            assert_eq!(iter.count(), 3);
+        }
+
+        {
+            let iter = table.iter();
+
+            for (k, _) in iter {
+                if k == build_data()[2].0.as_bytes() {
+                    return;
+                }
+            }
+
+            panic!("Should have hit 3rd record in table!");
+        }
+    }
+
+    #[test]
+    #[ignore]
     fn test_table_iterator_fwd() {
         let (src, size) = build_table();
         let data = build_data();
@@ -383,6 +425,31 @@ mod tests {
             assert_eq!(
                 (data[i].0.as_bytes(), data[i].1.as_bytes()),
                 (k.as_ref(), v.as_ref())
+            );
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn test_table_iterator_filter() {
+        let (src, size) = build_table();
+        let _data = build_data();
+
+        let mut table = Table::new(
+            Cursor::new(&src as &[u8]),
+            size,
+            StandardComparator,
+            BloomPolicy::new(4),
+            Options::default(),
+        )
+        .unwrap();
+        let filter_reader = table.filters.clone().unwrap();
+        let mut iter = table.iter();
+
+        while let Some((k, _)) = iter.next() {
+            assert!(filter_reader.key_may_match(iter.current_block_off, &k));
+            assert!(
+                !filter_reader.key_may_match(iter.current_block_off, "somerandomkey".as_bytes())
             );
         }
     }
