@@ -94,7 +94,7 @@ impl VersionEdit {
     }
 
     pub fn add_file(&mut self, level: isize, file: FileMetaData) {
-        self.new_files.push((level, file.clone()))
+        self.new_files.push((level, file))
     }
 
     pub fn delete_file(&mut self, level: isize, file_num: u64) {

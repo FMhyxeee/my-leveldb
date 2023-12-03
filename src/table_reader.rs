@@ -10,6 +10,7 @@ use crate::{
     blockhandle::BlockHandle,
     filter::FilterPolicy,
     filter_block::FilterBlockReader,
+    key_types::InternalKey,
     options::{self, CompressionType, Options},
     table_builder::{self, Footer},
     types::LdbIterator,
@@ -184,6 +185,22 @@ impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
         iter.skip_to_next_entry(); // initialize current_block
         iter
     }
+
+    /// Retrieve value from table
+    pub fn get(&mut self, k: InternalKey) -> Option<Vec<u8>> {
+        let mut iter = self.iter();
+        iter.seek(k);
+
+        if let Some((fkey, fval)) = iter.current() {
+            if fkey == k {
+                Some(fval)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
 }
 
 /// This iterator is a "TwoLevelIterator"; it uses an index block in order to get an offset hint
@@ -304,6 +321,8 @@ impl<'a, C: Comparator, R: Read + Seek, FP: FilterPolicy> LdbIterator
 #[cfg(test)]
 mod tests {
 
+    use std::io::Cursor;
+
     use crate::{filter::BloomPolicy, table_builder::TableBuilder, types::StandardComparator};
 
     use super::*;
@@ -344,128 +363,154 @@ mod tests {
         (d, size)
     }
 
-    // #[test]
-    // fn test_table_iterator_fwd() {
-    //     let (src, size) = build_table();
-    //     let data = build_data();
+    #[test]
+    #[ignore]
+    fn test_table_iterator_fwd() {
+        let (src, size) = build_table();
+        let data = build_data();
 
-    //     let mut table = Table::new(
-    //         Cursor::new(&src as &[u8]),
-    //         size,
-    //         StandardComparator,
-    //         BloomPolicy::new(4),
-    //         Options::default(),
-    //     )
-    //     .unwrap();
-    //     let iter = table.iter();
+        let mut table = Table::new(
+            Cursor::new(&src as &[u8]),
+            size,
+            StandardComparator,
+            BloomPolicy::new(4),
+            Options::default(),
+        )
+        .unwrap();
+        let iter = table.iter();
 
-    //     for (i, (k, v)) in iter.enumerate() {
-    //         assert_eq!(
-    //             (data[i].0.as_bytes(), data[i].1.as_bytes()),
-    //             (k.as_ref(), v.as_ref())
-    //         );
-    //     }
-    // }
+        for (i, (k, v)) in iter.enumerate() {
+            assert_eq!(
+                (data[i].0.as_bytes(), data[i].1.as_bytes()),
+                (k.as_ref(), v.as_ref())
+            );
+        }
+    }
 
-    // #[test]
-    // fn test_table_iterator_state_behavior() {
-    //     let (src, size) = build_table();
+    #[test]
+    #[ignore]
+    fn test_table_iterator_state_behavior() {
+        let (src, size) = build_table();
 
-    //     let mut table = Table::new(
-    //         Cursor::new(&src as &[u8]),
-    //         size,
-    //         StandardComparator,
-    //         BloomPolicy::new(4),
-    //         Options::default(),
-    //     )
-    //     .unwrap();
-    //     let mut iter = table.iter();
+        let mut table = Table::new(
+            Cursor::new(&src as &[u8]),
+            size,
+            StandardComparator,
+            BloomPolicy::new(4),
+            Options::default(),
+        )
+        .unwrap();
+        let mut iter = table.iter();
 
-    //     // behavior test
+        // behavior test
 
-    //     // See comment on valid()
-    //     assert!(!iter.valid());
-    //     assert!(iter.current().is_none());
+        // See comment on valid()
+        assert!(!iter.valid());
+        assert!(iter.current().is_none());
 
-    //     assert!(iter.next().is_some());
-    //     assert!(iter.valid());
-    //     assert!(iter.current().is_some());
+        assert!(iter.next().is_some());
+        assert!(iter.valid());
+        assert!(iter.current().is_some());
 
-    //     assert!(iter.next().is_some());
-    //     assert!(iter.prev().is_some());
-    //     assert!(iter.current().is_some());
+        assert!(iter.next().is_some());
+        assert!(iter.prev().is_some());
+        assert!(iter.current().is_some());
 
-    //     iter.reset();
-    //     assert!(!iter.valid());
-    //     assert!(iter.current().is_none());
-    // }
+        iter.reset();
+        assert!(!iter.valid());
+        assert!(iter.current().is_none());
+    }
 
-    // #[test]
-    // fn test_table_iterator_values() {
-    //     let (src, size) = build_table();
-    //     let data = build_data();
+    #[test]
+    #[ignore]
+    fn test_table_iterator_values() {
+        let (src, size) = build_table();
+        let data = build_data();
 
-    //     let mut table = Table::new(
-    //         Cursor::new(&src as &[u8]),
-    //         size,
-    //         StandardComparator,
-    //         BloomPolicy::new(4),
-    //         Options::default(),
-    //     )
-    //     .unwrap();
-    //     let mut iter = table.iter();
-    //     let mut i = 0;
+        let mut table = Table::new(
+            Cursor::new(&src as &[u8]),
+            size,
+            StandardComparator,
+            BloomPolicy::new(4),
+            Options::default(),
+        )
+        .unwrap();
+        let mut iter = table.iter();
+        let mut i = 0;
 
-    //     iter.next();
-    //     iter.next();
+        iter.next();
+        iter.next();
 
-    //     // Go back to previous entry, check, go forward two entries, repeat
-    //     // Verifies that prev/next works well.
-    //     while iter.valid() && i < data.len() {
-    //         iter.prev();
+        // Go back to previous entry, check, go forward two entries, repeat
+        // Verifies that prev/next works well.
+        while iter.valid() && i < data.len() {
+            iter.prev();
 
-    //         if let Some((k, v)) = iter.current() {
-    //             assert_eq!(
-    //                 (data[i].0.as_bytes(), data[i].1.as_bytes()),
-    //                 (k.as_ref(), v.as_ref())
-    //             );
-    //         } else {
-    //             break;
-    //         }
+            if let Some((k, v)) = iter.current() {
+                assert_eq!(
+                    (data[i].0.as_bytes(), data[i].1.as_bytes()),
+                    (k.as_ref(), v.as_ref())
+                );
+            } else {
+                break;
+            }
 
-    //         i += 1;
-    //         iter.next();
-    //         iter.next();
-    //     }
+            i += 1;
+            iter.next();
+            iter.next();
+        }
 
-    //     assert_eq!(i, 7);
-    // }
+        assert_eq!(i, 7);
+    }
 
-    // #[test]
-    // fn test_table_iterator_seek() {
-    //     let (src, size) = build_table();
+    #[test]
+    #[ignore]
+    fn test_table_iterator_seek() {
+        let (src, size) = build_table();
 
-    //     let mut table = Table::new(
-    //         Cursor::new(&src as &[u8]),
-    //         size,
-    //         StandardComparator,
-    //         BloomPolicy::new(4),
-    //         Options::default(),
-    //     )
-    //     .unwrap();
-    //     let mut iter = table.iter();
+        let mut table = Table::new(
+            Cursor::new(&src as &[u8]),
+            size,
+            StandardComparator,
+            BloomPolicy::new(4),
+            Options::default(),
+        )
+        .unwrap();
+        let mut iter = table.iter();
 
-    //     iter.seek("bcd".as_bytes());
-    //     assert!(iter.valid());
-    //     assert_eq!(
-    //         iter.current(),
-    //         Some(("bcd".as_bytes().to_vec(), "asa".as_bytes().to_vec()))
-    //     );
-    //     iter.seek("abc".as_bytes());
-    //     assert!(iter.valid());
-    //     assert_eq!(
-    //         iter.current(),
-    //         Some(("abc".as_bytes().to_vec(), "def".as_bytes().to_vec()))
-    //     );
-    // }
+        iter.seek("bcd".as_bytes());
+        assert!(iter.valid());
+        assert_eq!(
+            iter.current(),
+            Some(("bcd".as_bytes().to_vec(), "asa".as_bytes().to_vec()))
+        );
+        iter.seek("abc".as_bytes());
+        assert!(iter.valid());
+        assert_eq!(
+            iter.current(),
+            Some(("abc".as_bytes().to_vec(), "def".as_bytes().to_vec()))
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_table_get() {
+        let (src, size) = build_table();
+
+        let mut table = Table::new(
+            Cursor::new(&src as &[u8]),
+            size,
+            StandardComparator,
+            BloomPolicy::new(4),
+            Options::default(),
+        )
+        .unwrap();
+
+        assert!(table.get("aaa".as_bytes()).is_none());
+        assert_eq!(table.get("abc".as_bytes()), Some("def".as_bytes().to_vec()));
+        assert!(table.get("abcd".as_bytes()).is_none());
+        assert_eq!(table.get("bcd".as_bytes()), Some("asa".as_bytes().to_vec()));
+        assert_eq!(table.get("zzz".as_bytes()), Some("111".as_bytes().to_vec()));
+        assert!(table.get("zz1".as_bytes()).is_none());
+    }
 }
