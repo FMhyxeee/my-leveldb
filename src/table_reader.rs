@@ -61,7 +61,7 @@ fn read_block<R: Read + Seek, C: Comparator>(
             location.offset(),
             location.size()
                 + table_builder::TABLE_BLOCK_COMPRESS_LEN
-                + table_builder::TBALE_BLOCK_CKSUM_LEN,
+                + table_builder::TABLE_BLOCK_CKSUM_LEN,
         ),
     )
     .unwrap();

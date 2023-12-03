@@ -131,7 +131,6 @@ impl<FP: FilterPolicy> FilterBlockReader<FP> {
     }
 
     /// Returns the offset of the offset with index i.
-    #[inline]
     fn offset_of(&self, i: u32) -> usize {
         let offset_offset = self.offsets_offset + 4 * i as usize;
         u32::decode_fixed(&self.block[offset_offset..offset_offset + 4]) as usize
@@ -197,7 +196,7 @@ mod tests {
     fn test_filter_block_builder() {
         let result = produce_filter_block();
         // 2 blocks of 4 filters of 4 bytes plus 1B for `k`; plus three filter offsets (because of
-        //   the block offset of 5000); plus footer
+        //   the block offsets of 0  and 5000); plus footer
         assert_eq!(result.len(), 2 * (get_keys().len() * 4 + 1) + (3 * 4) + 5);
         assert_eq!(
             result,
@@ -221,7 +220,7 @@ mod tests {
 
         let unknowns_keys = vec!["sxb".as_bytes(), "9asd".as_bytes(), "asssssasss".as_bytes()];
 
-        for block_offset in vec![0, 5000, 5, 5500].into_iter() {
+        for block_offset in vec![0, 1024, 5, 6025].into_iter() {
             for key in get_keys().iter() {
                 assert!(reader.key_may_match(block_offset, key));
             }
