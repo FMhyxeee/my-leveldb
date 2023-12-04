@@ -1,6 +1,9 @@
 use std::{cmp::Ordering, rc::Rc};
 
-use crate::{options::Options, types::LdbIterator, Comparator};
+use crate::{
+    options::Options,
+    types::{cmp, LdbIterator},
+};
 
 use integer_encoding::{FixedInt, VarInt};
 
@@ -21,19 +24,17 @@ pub type BlockContents = Vec<u8>;
 /// A RESTART is a fixed u32 pointing to the beginning of an ENTRY.
 ///
 /// N_RESTARTS contains the number of restarts
-pub struct Block<C: Comparator> {
+pub struct Block {
     block: Rc<BlockContents>,
-    cmp: C,
 }
 
-impl<C: Comparator> Block<C> {
-    pub fn iter(&self) -> BlockIter<C> {
+impl Block {
+    pub fn iter(&self) -> BlockIter {
         let restarts = u32::decode_fixed(&self.block[self.block.len() - 4..]);
         let restart_offset = self.block.len() - 4 - 4 * restarts as usize;
 
         BlockIter {
             block: self.block.clone(),
-            cmp: self.cmp,
             offset: 0,
             restarts_off: restart_offset,
             current_entry_offset: 0,
@@ -48,18 +49,16 @@ impl<C: Comparator> Block<C> {
         self.block.clone()
     }
 
-    pub fn new(contents: BlockContents, cmp: C) -> Block<C> {
+    pub fn new(contents: BlockContents) -> Block {
         assert!(contents.len() > 4);
         Block {
             block: Rc::new(contents),
-            cmp,
         }
     }
 }
 
-pub struct BlockIter<C: Comparator> {
+pub struct BlockIter {
     block: Rc<BlockContents>,
-    cmp: C,
     // start of next entry
     offset: usize,
     // start of restarts area
@@ -73,7 +72,7 @@ pub struct BlockIter<C: Comparator> {
     val_offset: usize,
 }
 
-impl<C: Comparator> BlockIter<C> {
+impl BlockIter {
     fn number_restarts(&self) -> usize {
         u32::decode_fixed(&self.block[self.block.len() - 4..]) as usize
     }
@@ -84,7 +83,7 @@ impl<C: Comparator> BlockIter<C> {
     }
 }
 
-impl<C: Comparator> BlockIter<C> {
+impl BlockIter {
     // Returns SHARED, NON_SHARED and VALSIZE from the current position. Advances self.offset.
     fn parse_entry(&mut self) -> (usize, usize, usize) {
         let mut i = 0;
@@ -127,7 +126,7 @@ impl<C: Comparator> BlockIter<C> {
     }
 }
 
-impl<C: Comparator> Iterator for BlockIter<C> {
+impl Iterator for BlockIter {
     type Item = (Vec<u8>, Vec<u8>);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -155,7 +154,7 @@ impl<C: Comparator> Iterator for BlockIter<C> {
     }
 }
 
-impl<C: Comparator> LdbIterator for BlockIter<C> {
+impl LdbIterator for BlockIter {
     fn reset(&mut self) {
         self.offset = 0;
         self.current_restart_ix = 0;
@@ -213,11 +212,9 @@ impl<C: Comparator> LdbIterator for BlockIter<C> {
             // At a restart, the shared part is supposed to be 0.
             assert_eq!(shared, 0);
 
-            let cmp = self
-                .cmp
-                .cmp(to, &self.block[self.offset..self.offset + non_shared]);
+            let c = cmp(to, &self.block[self.offset..self.offset + non_shared]);
 
-            if cmp == Ordering::Less {
+            if c == Ordering::Less {
                 right = middle - 1;
             } else {
                 left = middle;
@@ -229,8 +226,8 @@ impl<C: Comparator> LdbIterator for BlockIter<C> {
         self.offset = self.get_restart_point(left);
 
         // Linear search from here on
-        while let Some((k, _)) = self.next() {
-            if self.cmp.cmp(k.as_slice(), to) >= Ordering::Equal {
+        for (k, _) in self.by_ref() {
+            if cmp(k.as_slice(), to) >= Ordering::Equal {
                 return;
             }
         }
@@ -252,9 +249,8 @@ impl<C: Comparator> LdbIterator for BlockIter<C> {
     }
 }
 
-pub struct BlockBuilder<C: Comparator> {
+pub struct BlockBuilder {
     opt: Options,
-    cmp: C,
     buffer: Vec<u8>,
     restarts: Vec<u32>,
 
@@ -262,15 +258,14 @@ pub struct BlockBuilder<C: Comparator> {
     counter: usize,
 }
 
-impl<C: Comparator> BlockBuilder<C> {
-    pub fn new(o: Options, cmp: C) -> BlockBuilder<C> {
+impl BlockBuilder {
+    pub fn new(o: Options) -> BlockBuilder {
         let mut restarts = vec![0];
         restarts.reserve(1023);
 
         BlockBuilder {
             buffer: Vec::with_capacity(o.block_size),
             opt: o,
-            cmp,
             restarts,
             last_key: Vec::new(),
             counter: 0,
@@ -298,10 +293,7 @@ impl<C: Comparator> BlockBuilder<C> {
 
     pub fn add(&mut self, key: &[u8], val: &[u8]) {
         assert!(self.counter <= self.opt.block_restart_interval);
-        assert!(
-            self.buffer.is_empty() || self.cmp.cmp(self.last_key.as_slice(), key) == Ordering::Less
-        );
-
+        assert!(self.buffer.is_empty() || cmp(self.last_key.as_slice(), key) == Ordering::Less);
         let mut shared = 0;
 
         if self.counter < self.opt.block_restart_interval {
@@ -363,7 +355,6 @@ impl<C: Comparator> BlockBuilder<C> {
 
 #[cfg(test)]
 mod tests {
-    use crate::types::StandardComparator;
 
     use super::*;
 
@@ -388,7 +379,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut builder = BlockBuilder::new(o, StandardComparator);
+        let mut builder = BlockBuilder::new(o);
 
         for &(k, v) in get_data().iter() {
             builder.add(k, v);
@@ -406,13 +397,13 @@ mod tests {
             block_restart_interval: 16,
             ..Default::default()
         };
-        let builder = BlockBuilder::new(o, StandardComparator);
+        let builder = BlockBuilder::new(o);
 
         let blockc = builder.finish();
         assert_eq!(blockc.len(), 8);
         assert_eq!(blockc, vec![0, 0, 0, 0, 1, 0, 0, 0]);
 
-        let block = Block::new(blockc, StandardComparator);
+        let block = Block::new(blockc);
 
         for _ in block.iter() {
             panic!("expected 0 iterations");
@@ -422,14 +413,14 @@ mod tests {
     #[test]
     fn test_block_build_iterate() {
         let data = get_data();
-        let mut builder = BlockBuilder::new(Options::default(), StandardComparator);
+        let mut builder = BlockBuilder::new(Options::default());
 
         for &(k, v) in data.iter() {
             builder.add(k, v);
         }
 
         let block_contents = builder.finish();
-        let block = Block::new(block_contents, StandardComparator).iter();
+        let block = Block::new(block_contents).iter();
         let mut i = 0;
 
         assert!(!block.valid());
@@ -449,14 +440,14 @@ mod tests {
             ..Default::default()
         };
         let data = get_data();
-        let mut builder = BlockBuilder::new(o, StandardComparator);
+        let mut builder = BlockBuilder::new(o);
 
         for &(k, v) in data.iter() {
             builder.add(k, v);
         }
 
         let block_contents = builder.finish();
-        let mut block = Block::new(block_contents, StandardComparator).iter();
+        let mut block = Block::new(block_contents).iter();
 
         assert!(!block.valid());
         assert_eq!(
@@ -484,7 +475,7 @@ mod tests {
         };
 
         let data = get_data();
-        let mut builder = BlockBuilder::new(o, StandardComparator);
+        let mut builder = BlockBuilder::new(o);
 
         for &(k, v) in data.iter() {
             builder.add(k, v);
@@ -492,7 +483,7 @@ mod tests {
 
         let block_contents = builder.finish();
 
-        let mut block = Block::new(block_contents, StandardComparator).iter();
+        let mut block = Block::new(block_contents).iter();
 
         block.seek("prefix_key2".as_bytes());
         assert!(block.valid());
@@ -533,7 +524,7 @@ mod tests {
 
             let data = get_data();
 
-            let mut builder = BlockBuilder::new(o, StandardComparator);
+            let mut builder = BlockBuilder::new(o);
 
             for &(k, v) in data.iter() {
                 builder.add(k, v);
@@ -541,7 +532,7 @@ mod tests {
 
             let block_contents = builder.finish();
 
-            let mut block = Block::new(block_contents, StandardComparator).iter();
+            let mut block = Block::new(block_contents).iter();
 
             block.seek_to_last();
 

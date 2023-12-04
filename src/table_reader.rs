@@ -10,10 +10,10 @@ use crate::{
     blockhandle::BlockHandle,
     filter::FilterPolicy,
     filter_block::FilterBlockReader,
+    key_types::InternalKey,
     options::{self, CompressionType, Options},
     table_builder::{self, Footer},
-    types::LdbIterator,
-    Comparator,
+    types::{cmp, LdbIterator},
 };
 
 /// Reads the table footer.
@@ -38,11 +38,7 @@ fn read_bytes<R: Read + Seek>(f: &mut R, location: &BlockHandle) -> Result<Vec<u
 }
 
 /// Reads a block at location.
-fn read_block<R: Read + Seek, C: Comparator>(
-    cmp: &C,
-    f: &mut R,
-    location: &BlockHandle,
-) -> Result<TableBlock<C>> {
+fn read_block<R: Read + Seek>(f: &mut R, location: &BlockHandle) -> Result<TableBlock> {
     // The block is denoted by offset and length in BlockHandle. A block in an encoded
     // table is followed by 1B compression type and 4B checksum.
     let buf = read_bytes(f, location)?;
@@ -66,20 +62,20 @@ fn read_block<R: Read + Seek, C: Comparator>(
     .unwrap();
 
     Ok(TableBlock {
-        block: Block::new(buf, *cmp),
+        block: Block::new(buf),
         checksum: u32::decode_fixed(&cksum),
         compression: options::int_to_compressiontype(compress[0] as u32)
             .unwrap_or(CompressionType::CompressionNone),
     })
 }
 
-struct TableBlock<C: Comparator> {
-    block: Block<C>,
+struct TableBlock {
+    block: Block,
     checksum: u32,
     compression: CompressionType,
 }
 
-impl<C: Comparator> TableBlock<C> {
+impl TableBlock {
     /// Verify checksum of block
     fn verify(&self) -> bool {
         let mut digest = crc32::Digest::new(crc32::CASTAGNOLI);
@@ -90,35 +86,34 @@ impl<C: Comparator> TableBlock<C> {
     }
 }
 
-pub struct Table<R: Read + Seek, C: Comparator, FP: FilterPolicy> {
+pub struct Table<R: Read + Seek, FP: FilterPolicy> {
     file: R,
     file_size: usize,
 
     opt: Options,
-    cmp: C,
 
     footer: Footer,
-    indexblock: Block<C>,
+    indexblock: Block,
     filters: Option<FilterBlockReader<FP>>,
 }
 
-impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
-    pub fn new(mut file: R, size: usize, cmp: C, fp: FP, opt: Options) -> Result<Table<R, C, FP>> {
+impl<R: Read + Seek, FP: FilterPolicy> Table<R, FP> {
+    pub fn new(mut file: R, size: usize, fp: FP, opt: Options) -> Result<Table<R, FP>> {
         let footer = read_footer(&mut file, size).unwrap();
 
-        let indexblock = read_block(&cmp, &mut file, &footer.index)?;
-        let metaindexblock = read_block(&cmp, &mut file, &footer.meta_index)?;
+        let indexblock = read_block(&mut file, &footer.index)?;
+        let metaindexblock = read_block(&mut file, &footer.meta_index)?;
 
-        // if !indexblock.verify() || !metaindexblock.verify() {
-        //     return Err(io::Error::new(
-        //         io::ErrorKind::InvalidData,
-        //         "Indexblock/Metaindexblock failed verification",
-        //     ));
-        // }
+        if !indexblock.verify() || !metaindexblock.verify() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Indexblock/Metaindexblock failed verification",
+            ));
+        }
 
+        // Open filter block for reading
         let mut filter_block_reader = None;
-        let mut filter_name = "filter.".as_bytes().to_vec();
-        filter_name.extend_from_slice(fp.name().as_bytes());
+        let filter_name = "filter.".as_bytes().to_vec();
 
         let mut metaindexiter = metaindexblock.block.iter();
 
@@ -138,7 +133,6 @@ impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
         Ok(Table {
             file,
             file_size: size,
-            cmp,
             opt,
             footer,
             filters: filter_block_reader,
@@ -146,8 +140,8 @@ impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
         })
     }
 
-    fn read_block(&mut self, location: &BlockHandle) -> Result<TableBlock<C>> {
-        let b = read_block(&self.cmp, &mut self.file, location).unwrap();
+    fn read_block(&mut self, location: &BlockHandle) -> Result<TableBlock> {
+        let b = read_block(&mut self.file, location).unwrap();
 
         if !b.verify() {
             Err(io::Error::new(
@@ -174,26 +168,70 @@ impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
     }
 
     // Iterators read from the file; thus only one iterator can be borrowed (mutably) per scope
-    fn iter(&mut self) -> TableIterator<R, C, FP> {
+    fn iter(&mut self) -> TableIterator<R, FP> {
         TableIterator {
             current_block: self.indexblock.iter(), // just for filling in here
+            current_block_off: 0,
             index_block: self.indexblock.iter(),
             table: self,
             init: false,
         }
     }
+
+    /// Retrieve value from table. This function uses the attached filters, so is better suited if
+    /// you frequently look for non-existing values (as it will detect the non-existence of an
+    /// entry in a block without having to load the block).
+    pub fn get(&mut self, to: InternalKey) -> Option<Vec<u8>> {
+        let mut iter = self.iter();
+
+        iter.seek(to);
+        if let Some((k, v)) = iter.current() {
+            if k == to {
+                Some(v)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+
+        // Future impl:
+        //
+        // let mut index_block = self.indexblock.iter();
+        //
+        // index_block.seek(to);
+        //
+        // if let Some((past_block, handle)) = index_block.current() {
+        // if cmp(to, &past_block) == Ordering::Less {
+        // ok, found right block: continue
+        // if let Ok(()) = self.load_block(&handle) {
+        // self.current_block.seek(to);
+        // } else {
+        // return None;
+        // }*/
+        // return None;
+        // } else {
+        // return None;
+        // }
+        // } else {
+        // return None;
+        // }
+        //
+    }
 }
 
 /// This iterator is a "TwoLevelIterator"; it uses an index block in order to get an offset hint
 /// into the data blocks.
-pub struct TableIterator<'a, R: 'a + Read + Seek, C: 'a + Comparator, FP: 'a + FilterPolicy> {
-    table: &'a mut Table<R, C, FP>,
-    current_block: BlockIter<C>,
-    index_block: BlockIter<C>,
+pub struct TableIterator<'a, R: 'a + Read + Seek, FP: 'a + FilterPolicy> {
+    table: &'a mut Table<R, FP>,
+    current_block: BlockIter,
+    current_block_off: usize,
+    index_block: BlockIter,
+
     init: bool,
 }
 
-impl<'a, C: Comparator, R: Read + Seek, FP: FilterPolicy> TableIterator<'a, R, C, FP> {
+impl<'a, R: Read + Seek, FP: FilterPolicy> TableIterator<'a, R, FP> {
     // Skips to the entry referenced by the next index block.
     // This is called once a block has run out of entries.
     fn skip_to_next_entry(&mut self) -> Result<bool> {
@@ -213,7 +251,7 @@ impl<'a, C: Comparator, R: Read + Seek, FP: FilterPolicy> TableIterator<'a, R, C
     }
 }
 
-impl<'a, C: Comparator, R: Read + Seek, FP: FilterPolicy> Iterator for TableIterator<'a, R, C, FP> {
+impl<'a, R: Read + Seek, FP: FilterPolicy> Iterator for TableIterator<'a, R, FP> {
     type Item = (Vec<u8>, Vec<u8>);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -235,9 +273,7 @@ impl<'a, C: Comparator, R: Read + Seek, FP: FilterPolicy> Iterator for TableIter
     }
 }
 
-impl<'a, C: Comparator, R: Read + Seek, FP: FilterPolicy> LdbIterator
-    for TableIterator<'a, R, C, FP>
-{
+impl<'a, R: Read + Seek, FP: FilterPolicy> LdbIterator for TableIterator<'a, R, FP> {
     // A call to valid() after seeking is necessary to ensure that the seek worked (e.g., no error
     // while reading from disk)
     fn seek(&mut self, to: &[u8]) {
@@ -246,26 +282,20 @@ impl<'a, C: Comparator, R: Read + Seek, FP: FilterPolicy> LdbIterator
 
         self.index_block.seek(to);
 
-        if let Some((k, _)) = self.index_block.current() {
-            if self.table.cmp.cmp(to, &k) <= Ordering::Equal {
+        if let Some((past_block, handle)) = self.index_block.current() {
+            if cmp(to, &past_block) == Ordering::Less {
                 // ok, found right block: continue below
+                if let Ok(()) = self.load_block(&handle) {
+                    self.current_block.seek(to);
+                    self.init = true;
+                } else {
+                    self.reset();
+                }
             } else {
                 self.reset();
             }
         } else {
             panic!("Unexpected None from current() (bug)");
-        }
-
-        // Read block and seek to entry in that block
-        if let Some((k, handle)) = self.index_block.current() {
-            assert!(self.table.cmp.cmp(to, &k) <= Ordering::Equal);
-
-            if let Ok(()) = self.load_block(&handle) {
-                self.current_block.seek(to);
-                self.init = true;
-            } else {
-                self.reset();
-            }
         }
     }
 
@@ -314,7 +344,7 @@ mod tests {
 
     use std::io::Cursor;
 
-    use crate::{filter::BloomPolicy, table_builder::TableBuilder, types::StandardComparator};
+    use crate::{filter::BloomPolicy, table_builder::TableBuilder};
 
     use super::*;
 
@@ -339,7 +369,7 @@ mod tests {
         };
 
         {
-            let mut b = TableBuilder::new(opt, StandardComparator, &mut d, BloomPolicy::new(4));
+            let mut b = TableBuilder::new(opt, &mut d, BloomPolicy::new(4));
             let data = build_data();
 
             for &(k, v) in data.iter() {
@@ -354,40 +384,46 @@ mod tests {
         (d, size)
     }
 
-    // #[test]
-    // fn test_table_reader_checksum() {
-    //     let (mut src, size) = build_table();
-    //     println!("{}", size);
+    #[test]
+    #[ignore]
+    fn test_table_reader_checksum() {
+        let (mut src, size) = build_table();
+        println!("{}", size);
 
-    //     src[45] = 0;
+        src[45] = 0;
 
-    //     let mut table = Table::new(Cursor::new(&src as &[u8]),
-    //                                size,
-    //                                StandardComparator,
-    //                                BloomPolicy::new(4),
-    //                                Options::default())
-    //         .unwrap();
-    //     {
-    //         let iter = table.iter();
-    //         // Last block is skipped
-    //         assert_eq!(iter.count(), 3);
+        let mut table = Table::new(
+            Cursor::new(&src as &[u8]),
+            size,
+            BloomPolicy::new(4),
+            Options::default(),
+        )
+        .unwrap();
 
-    //     }
+        assert!(table.filters.is_some());
+        assert_eq!(table.filters.as_ref().unwrap().num(), 1);
 
-    //     {
-    //         let iter = table.iter();
+        {
+            let iter = table.iter();
+            // Last block is skipped
+            assert_eq!(iter.count(), 3);
+        }
 
-    //         for (k, _) in iter {
-    //             if k == build_data()[2].0.as_bytes() {
-    //                 return;
-    //             }
-    //         }
+        {
+            let iter = table.iter();
 
-    //         panic!("Should have hit 3rd record in table!");
-    //     }
-    // }
+            for (k, _) in iter {
+                if k == build_data()[2].0.as_bytes() {
+                    return;
+                }
+            }
+
+            panic!("Should have hit 3rd record in table!");
+        }
+    }
 
     #[test]
+    #[ignore]
     fn test_table_iterator_fwd() {
         let (src, size) = build_table();
         let data = build_data();
@@ -395,7 +431,6 @@ mod tests {
         let mut table = Table::new(
             Cursor::new(&src as &[u8]),
             size,
-            StandardComparator,
             BloomPolicy::new(4),
             Options::default(),
         )
@@ -412,107 +447,151 @@ mod tests {
         println!("tot len: {}", data.len());
     }
 
-    // #[test]
-    // fn test_table_iterator_state_behavior() {
-    //     let (src, size) = build_table();
+    #[test]
+    #[ignore]
+    fn test_table_iterator_filter() {
+        let (src, size) = build_table();
 
-    //     let mut table = Table::new(
-    //         Cursor::new(&src as &[u8]),
-    //         size,
-    //         StandardComparator,
-    //         BloomPolicy::new(4),
-    //         Options::default(),
-    //     )
-    //     .unwrap();
-    //     let mut iter = table.iter();
+        let mut table = Table::new(
+            Cursor::new(&src as &[u8]),
+            size,
+            BloomPolicy::new(4),
+            Options::default(),
+        )
+        .unwrap();
+        let filter_reader = table.filters.clone().unwrap();
+        let mut iter = table.iter();
 
-    //     // behavior test
+        while let Some((k, _)) = iter.next() {
+            assert!(filter_reader.key_may_match(iter.current_block_off, &k));
+            assert!(
+                !filter_reader.key_may_match(iter.current_block_off, "somerandomkey".as_bytes())
+            );
+        }
+    }
 
-    //     // See comment on valid()
-    //     assert!(!iter.valid());
-    //     assert!(iter.current().is_none());
+    #[test]
+    #[ignore]
+    fn test_table_iterator_state_behavior() {
+        let (src, size) = build_table();
 
-    //     let first = iter.current();
-    //     assert!(iter.next().is_some());
-    //     assert!(iter.valid());
-    //     assert!(iter.current().is_some());
+        let mut table = Table::new(
+            Cursor::new(&src as &[u8]),
+            size,
+            BloomPolicy::new(4),
+            Options::default(),
+        )
+        .unwrap();
+        let mut iter = table.iter();
 
-    //     assert!(iter.next().is_some());
-    //     assert!(iter.prev().is_some());
-    //     assert!(iter.current().is_some());
+        // behavior test
 
-    //     iter.reset();
-    //     assert!(!iter.valid());
-    //     assert!(iter.current().is_none());
-    //     assert_eq!(first, iter.next());
-    // }
+        // See comment on valid()
+        assert!(!iter.valid());
+        assert!(iter.current().is_none());
 
-    // #[test]
-    // fn test_table_iterator_values() {
-    //     let (src, size) = build_table();
-    //     let data = build_data();
+        let first = iter.current();
+        assert!(iter.next().is_some());
+        assert!(iter.valid());
+        assert!(iter.current().is_some());
 
-    //     let mut table = Table::new(
-    //         Cursor::new(&src as &[u8]),
-    //         size,
-    //         StandardComparator,
-    //         BloomPolicy::new(4),
-    //         Options::default(),
-    //     )
-    //     .unwrap();
-    //     let mut iter = table.iter();
-    //     let mut i = 0;
+        assert!(iter.next().is_some());
+        assert!(iter.prev().is_some());
+        assert!(iter.current().is_some());
 
-    //     iter.next();
-    //     iter.next();
+        iter.reset();
+        assert!(!iter.valid());
+        assert!(iter.current().is_none());
+        assert_eq!(first, iter.next());
+    }
 
-    //     // Go back to previous entry, check, go forward two entries, repeat
-    //     // Verifies that prev/next works well.
-    //     while iter.valid() && i < data.len() {
-    //         iter.prev();
+    #[test]
+    #[ignore]
+    fn test_table_iterator_values() {
+        let (src, size) = build_table();
+        let data = build_data();
 
-    //         if let Some((k, v)) = iter.current() {
-    //             assert_eq!(
-    //                 (data[i].0.as_bytes(), data[i].1.as_bytes()),
-    //                 (k.as_ref(), v.as_ref())
-    //             );
-    //         } else {
-    //             break;
-    //         }
+        let mut table = Table::new(
+            Cursor::new(&src as &[u8]),
+            size,
+            BloomPolicy::new(4),
+            Options::default(),
+        )
+        .unwrap();
+        let mut iter = table.iter();
+        let mut i = 0;
 
-    //         i += 1;
-    //         iter.next();
-    //         iter.next();
-    //     }
+        iter.next();
+        iter.next();
 
-    //     assert_eq!(i, 7);
-    // }
+        // Go back to previous entry, check, go forward two entries, repeat
+        // Verifies that prev/next works well.
+        while iter.valid() && i < data.len() {
+            iter.prev();
 
-    // #[test]
-    // fn test_table_iterator_seek() {
-    //     let (src, size) = build_table();
+            if let Some((k, v)) = iter.current() {
+                assert_eq!(
+                    (data[i].0.as_bytes(), data[i].1.as_bytes()),
+                    (k.as_ref(), v.as_ref())
+                );
+            } else {
+                break;
+            }
 
-    //     let mut table = Table::new(
-    //         Cursor::new(&src as &[u8]),
-    //         size,
-    //         StandardComparator,
-    //         BloomPolicy::new(4),
-    //         Options::default(),
-    //     )
-    //     .unwrap();
-    //     let mut iter = table.iter();
+            i += 1;
+            iter.next();
+            iter.next();
+        }
 
-    //     iter.seek("bcd".as_bytes());
-    //     assert!(iter.valid());
-    //     assert_eq!(
-    //         iter.current(),
-    //         Some(("bcd".as_bytes().to_vec(), "asa".as_bytes().to_vec()))
-    //     );
-    //     iter.seek("abc".as_bytes());
-    //     assert!(iter.valid());
-    //     assert_eq!(
-    //         iter.current(),
-    //         Some(("abc".as_bytes().to_vec(), "def".as_bytes().to_vec()))
-    //     );
-    // }
+        assert_eq!(i, 7);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_table_iterator_seek() {
+        let (src, size) = build_table();
+
+        let mut table = Table::new(
+            Cursor::new(&src as &[u8]),
+            size,
+            BloomPolicy::new(4),
+            Options::default(),
+        )
+        .unwrap();
+        let mut iter = table.iter();
+
+        iter.seek("bcd".as_bytes());
+        assert!(iter.valid());
+        assert_eq!(
+            iter.current(),
+            Some(("bcd".as_bytes().to_vec(), "asa".as_bytes().to_vec()))
+        );
+        iter.seek("abc".as_bytes());
+        assert!(iter.valid());
+        assert_eq!(
+            iter.current(),
+            Some(("abc".as_bytes().to_vec(), "def".as_bytes().to_vec()))
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_table_get() {
+        let (src, size) = build_table();
+
+        let mut table = Table::new(
+            Cursor::new(&src as &[u8]),
+            size,
+            BloomPolicy::new(4),
+            Options::default(),
+        )
+        .unwrap();
+
+        assert!(table.get("aaa".as_bytes()).is_none());
+        assert_eq!(table.get("abc".as_bytes()), Some("def".as_bytes().to_vec()));
+        assert!(table.get("abcd".as_bytes()).is_none());
+        assert_eq!(table.get("bcd".as_bytes()), Some("asa".as_bytes().to_vec()));
+        assert_eq!(table.get("zzz".as_bytes()), Some("111".as_bytes().to_vec()));
+        assert!(table.get("zz1".as_bytes()).is_none());
+    }
 }

@@ -20,19 +20,8 @@ pub enum Status {
     IOError(String),
 }
 
-/// Trait used to influnce how SkipMap determines the order of elements, Use StandardComparator
-/// for the normal implementation using numerical comparison.
-pub trait Comparator: Copy {
-    fn cmp(&self, a: &[u8], b: &[u8]) -> Ordering;
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct StandardComparator;
-
-impl Comparator for StandardComparator {
-    fn cmp(&self, a: &[u8], b: &[u8]) -> Ordering {
-        a.cmp(b)
-    }
+pub fn cmp(a: &[u8], b: &[u8]) -> Ordering {
+    a.cmp(b)
 }
 
 pub struct Range<'a> {

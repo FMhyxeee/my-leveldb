@@ -98,6 +98,7 @@ impl<'a, FP: FilterPolicy> FilterBlockBuilder<'a, FP> {
     }
 }
 
+#[derive(Clone)]
 pub struct FilterBlockReader<FP: FilterPolicy> {
     policy: FP,
     block: Rc<Vec<u8>>,
@@ -126,7 +127,7 @@ impl<FP: FilterPolicy> FilterBlockReader<FP> {
     }
 
     /// Returns number of filters
-    fn num(&self) -> u32 {
+    pub fn num(&self) -> u32 {
         ((self.block.len() - self.offsets_offset - 5) / 4) as u32
     }
 

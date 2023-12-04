@@ -7,7 +7,6 @@ use integer_encoding::VarIntWriter;
 use crate::{
     memtable::MemTable,
     types::{SequenceNumber, ValueType},
-    Comparator,
 };
 
 const SEQNUM_OFFSET: usize = 0;
@@ -40,18 +39,23 @@ impl WriteBatch {
     /// Adds an entry to a WriteBatch, to be added to the database.
     #[allow(unused_assignments)]
     pub fn put(&mut self, k: &[u8], v: &[u8]) {
-        let _ = self.entries.write(&[ValueType::TypeValue as u8]).unwrap();
+        self.entries
+            .write_all(&[ValueType::TypeValue as u8])
+            .unwrap();
         let _ = self.entries.write_varint(k.len()).unwrap();
-        let _ = self.entries.write(k).unwrap();
+        self.entries.write_all(k).unwrap();
         let _ = self.entries.write_varint(v.len()).unwrap();
-        let _ = self.entries.write(v).unwrap();
+        self.entries.write_all(v).unwrap();
         let c = self.count();
         self.set_count(c + 1);
     }
 
     /// Marks an entry to be deleted from the database.
     pub fn delete(&mut self, k: &[u8]) {
-        let _ = self.entries.write_all(&[ValueType::TypeDeletion as u8]);
+        let _ = self
+            .entries
+            .write(&[ValueType::TypeDeletion as u8])
+            .unwrap();
 
         self.entries.write_varint(k.len()).unwrap();
         self.entries.write_all(k).unwrap();
@@ -93,22 +97,18 @@ impl WriteBatch {
         }
     }
 
-    pub fn insert_into_memtable<C: Comparator>(
-        &self,
-        mut seq: SequenceNumber,
-        mt: &mut MemTable<C>,
-    ) {
+    pub fn insert_into_memtable(&self, mut seq: SequenceNumber, mt: &mut MemTable) {
         for (k, v) in self.iter() {
             match v {
                 Some(v_) => mt.add(seq, ValueType::TypeValue, k, v_),
-                None => mt.add(seq, ValueType::TypeDeletion, k, "".as_bytes()),
+                None => mt.add(seq, ValueType::TypeDeletion, k, b""),
             }
             seq += 1;
         }
     }
 
-    pub fn encode(&mut self, s: SequenceNumber) -> Vec<u8> {
-        self.set_sequence(s);
+    pub fn encode(&mut self, seq: SequenceNumber) -> Vec<u8> {
+        self.set_sequence(seq);
         self.entries.clone()
     }
 }
@@ -135,7 +135,7 @@ impl<'a> Iterator for WriteBatchIter<'a> {
         self.ix += klen;
 
         if tag == ValueType::TypeValue as u8 {
-            let (vlen, m) = usize::decode_var(&self.batch.entries[self.ix..]).unwrap();
+            let (vlen, m) = usize::decode_var(&self.batch.entries[self.ix..])?;
             self.ix += m;
             let v = &self.batch.entries[self.ix..self.ix + vlen];
             self.ix += vlen;
