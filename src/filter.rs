@@ -121,13 +121,11 @@ impl FilterPolicy for BloomPolicy {
     }
 
     fn key_may_match(&self, key: &[u8], filter: &[u8]) -> bool {
-        let len = filter.len();
-
-        if len < 2 {
-            return false;
+        if filter.is_empty() {
+            return true;
         }
 
-        let bits = (len - 1) as u32 * 8;
+        let bits = (filter.len() - 1) as u32 * 8;
         let k = filter[filter.len() - 1];
         let filter_adj = &filter[0..filter.len() - 1];
 

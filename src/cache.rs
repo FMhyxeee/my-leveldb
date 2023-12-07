@@ -1,5 +1,7 @@
 use std::{collections::HashMap, mem::swap};
 
+use integer_encoding::FixedIntWriter;
+
 // No clone, no copy! That asserts that an LRUHandle exists only once.
 type LRUHandle<T> = *mut LRUNode<T>;
 
@@ -149,7 +151,17 @@ impl<T> LRUList<T> {
 }
 
 pub type CacheKey = Vec<u8>;
+pub struct CacheID(u64);
 type CacheEntry<T> = (T, LRUHandle<CacheKey>);
+
+impl CacheID {
+    // Serialize a cache ID to a byte string.
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut v = vec![0; 8];
+        let _ = v.write_fixedint(self.0);
+        v
+    }
+}
 
 /// Implementation of `SharedLRUCache`.
 /// Based on a HashMap; the elements are linked in order to support the LRU ordering.
@@ -160,6 +172,7 @@ pub struct Cache<T> {
     list: LRUList<CacheKey>,
     map: HashMap<CacheKey, CacheEntry<T>>,
     cap: usize,
+    id: u64,
 }
 
 impl<T> Cache<T> {
@@ -169,7 +182,13 @@ impl<T> Cache<T> {
             list: LRUList::new(),
             map: HashMap::with_capacity(1024),
             cap: capacity,
+            id: 0,
         }
+    }
+
+    pub fn new_cache_id(&mut self) -> CacheID {
+        self.id += 1;
+        CacheID(self.id)
     }
 
     /// How many the cache currently contains

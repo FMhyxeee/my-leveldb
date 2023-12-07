@@ -1,23 +1,37 @@
-use std::cmp::Ordering;
+use std::sync::Arc;
 
 use crate::{
     key_types::{
-        build_memtable_key, parse_memtable_key, InternalKey, LookupKey, MemtableKey, UserKey,
+        build_memtable_key, parse_memtable_key, InternalKey, LookupKey, MemtableKey,
+        MemtableKeyCmp, UserKey,
     },
+    options::Options,
     skipmap::{SkipMap, SkipMapIter},
-    types::{cmp, LdbIterator, SequenceNumber, Status, ValueType},
+    types::{LdbIterator, SequenceNumber, Status, ValueType},
 };
 
 /// Provides Insert/Get/Iterate, based on the SkipMap implementation.
 /// MemTable uses MemtablKeys internally, that is, it stores key and value in the [Skipmap] key.
 pub struct MemTable {
     map: SkipMap,
+    opt: Options,
 }
 
 impl MemTable {
-    pub fn new() -> Self {
+    /// Returns a new MemTable
+    /// This wraps opt.cmp inside a MemtableKey-specific comparator.
+    pub fn new(mut opt: Options) -> Self {
+        opt.cmp = Arc::new(Box::new(MemtableKeyCmp(opt.cmp.clone())));
+        MemTable::new_raw(opt)
+    }
+
+    /// Doesn't wrap the comparator in a MemtableKeyCmp.
+    fn new_raw(opt: Options) -> MemTable {
+        // Not using SkipMap::new_memtable_map(), as opt.cmp will already be wrapped by
+        // MemTable::new()
         MemTable {
-            map: SkipMap::new_memtable_map(),
+            map: SkipMap::new(opt.clone()),
+            opt,
         }
     }
 
@@ -36,15 +50,14 @@ impl MemTable {
 
         if let Some(e) = iter.current() {
             let foundkey: MemtableKey = e.0;
-            let (lkeylen, lkeyoff, _, _, _) = parse_memtable_key(key.memtable_key());
+            // let (lkeylen, lkeyoff, _, _, _) = parse_memtable_key(key.memtable_key());
             let (fkeylen, fkeyoff, tag, vallen, valoff) = parse_memtable_key(foundkey);
 
             // Compare user key -- if equal, proceed
-            if cmp(
-                &key.memtable_key()[lkeyoff..lkeyoff + lkeylen],
-                &foundkey[fkeyoff..fkeyoff + fkeylen],
-            ) == Ordering::Equal
-            {
+            println!("key: {:?}", key.user_key());
+
+            // equality doesn't need custom comparator
+            if key.user_key() == &foundkey[fkeyoff..fkeyoff + fkeylen] {
                 if tag & 0xff == ValueType::TypeValue as u64 {
                     return Result::Ok(foundkey[valoff..valoff + vallen].to_vec());
                 } else {
@@ -150,7 +163,7 @@ mod tests {
     use super::*;
 
     fn get_memtable() -> MemTable {
-        let mut mt = MemTable::new();
+        let mut mt = MemTable::new(Options::default());
         let entries = vec![
             (115, "abc", "122"),
             (120, "abc", "123"),
@@ -173,7 +186,7 @@ mod tests {
 
     #[test]
     fn test_memtable_add() {
-        let mut mt = MemTable::new();
+        let mut mt = MemTable::new_raw(Options::default());
         mt.add(
             123,
             ValueType::TypeValue,
@@ -188,34 +201,35 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_memtable_add_get() {
-        // let mt = get_memtable();
+        let mt = get_memtable();
 
-        // // Smaller sequence number doesn't find entry
-        // if let Result::Ok(v) = mt.get(&LookupKey::new("abc".as_bytes(), 110)) {
-        //     println!("{:?}", v);
-        //     panic!("found");
-        // }
+        // Smaller sequence number doesn't find entry
+        if let Result::Ok(v) = mt.get(&LookupKey::new("abc".as_bytes(), 110)) {
+            println!("{:?}", v);
+            panic!("found");
+        }
 
-        // // Bigger sequence number falls back to next smaller
-        // if let Result::Ok(v) = mt.get(&LookupKey::new("abc".as_bytes(), 116)) {
-        //     assert_eq!(v, "122".as_bytes());
-        // } else {
-        //     panic!("not found");
-        // }
+        // Bigger sequence number falls back to next smaller
+        if let Result::Ok(v) = mt.get(&LookupKey::new("abc".as_bytes(), 116)) {
+            assert_eq!(v, "122".as_bytes());
+        } else {
+            panic!("not found");
+        }
 
-        // // Exact match works
-        // if let Result::Ok(v) = mt.get(&LookupKey::new("abc".as_bytes(), 120)) {
-        //     assert_eq!(v, "123".as_bytes());
-        // } else {
-        //     panic!("not found");
-        // }
+        // Exact match works
+        if let Result::Ok(v) = mt.get(&LookupKey::new("abc".as_bytes(), 120)) {
+            assert_eq!(v, "123".as_bytes());
+        } else {
+            panic!("not found");
+        }
 
-        // if let Result::Ok(v) = mt.get(&LookupKey::new("abe".as_bytes(), 122)) {
-        //     assert_eq!(v, "125".as_bytes());
-        // } else {
-        //     panic!("not found");
-        // }
+        if let Result::Ok(v) = mt.get(&LookupKey::new("abe".as_bytes(), 122)) {
+            assert_eq!(v, "125".as_bytes());
+        } else {
+            panic!("not found");
+        }
     }
 
     #[test]
@@ -287,13 +301,15 @@ mod tests {
             vec![97, 98, 99, 1, 115, 0, 0, 0, 0, 0, 0].as_slice()
         );
 
-        // iter.prev();
-        // assert!(iter.valid());
-        // assert_eq!(iter.current().unwrap().0,
-        //            vec![97, 98, 99, 1, 120, 0, 0, 0, 0, 0, 0].as_slice());
+        iter.prev();
+        assert!(iter.valid());
+        assert_eq!(
+            iter.current().unwrap().0,
+            vec![97, 98, 99, 1, 120, 0, 0, 0, 0, 0, 0].as_slice()
+        );
 
-        // iter.prev();
-        // assert!(!iter.valid());
+        iter.prev();
+        assert!(!iter.valid());
     }
 
     #[test]

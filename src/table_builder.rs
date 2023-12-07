@@ -1,15 +1,15 @@
 use crc::{crc32, Hasher32};
 use integer_encoding::FixedInt;
-use std::{cmp::Ordering, io::Write};
+use std::{cmp::Ordering, io::Write, sync::Arc};
 
 use crate::{
     block::{BlockBuilder, BlockContents},
     blockhandle::BlockHandle,
     filter::{FilterPolicy, NoFilterPolicy},
     filter_block::FilterBlockBuilder,
-    key_types::InternalKey,
+    key_types::{InternalKey, InternalKeyCmp},
     options::{CompressionType, Options},
-    types::cmp,
+    types::Cmp,
 };
 
 pub const FOOTER_LENGTH: usize = 40;
@@ -20,7 +20,11 @@ pub const MAGIC_FOOTER_ENCODED: [u8; 8] = [0x57, 0xfb, 0x80, 0x8b, 0x24, 0x75, 0
 pub const TABLE_BLOCK_COMPRESS_LEN: usize = 1;
 pub const TBALE_BLOCK_CKSUM_LEN: usize = 4;
 
-fn find_shortest_sep<'a>(lo: InternalKey<'a>, hi: InternalKey<'a>) -> Vec<u8> {
+fn find_shortest_sep<'a>(
+    cmp: &Arc<Box<dyn Cmp>>,
+    lo: InternalKey<'a>,
+    hi: InternalKey<'a>,
+) -> Vec<u8> {
     let min = if lo.len() < hi.len() {
         lo.len()
     } else {
@@ -37,9 +41,10 @@ fn find_shortest_sep<'a>(lo: InternalKey<'a>, hi: InternalKey<'a>) -> Vec<u8> {
         Vec::from(lo)
     } else {
         if lo[diff_at] < 0xff && lo[diff_at] + 1 < hi[diff_at] {
-            let mut result = Vec::from(&lo[0..diff_at + 1]);
+            let mut result = lo.to_vec();
             result[diff_at] += 1;
-            assert_eq!(cmp(&result, hi), Ordering::Less);
+            println!("{:?}", (&result, hi));
+            assert_eq!(cmp.cmp(&result, hi), Ordering::Less);
             return result;
         }
         Vec::from(lo)
@@ -95,7 +100,7 @@ impl Footer {
 /// the index block, padding to fill up to 40 B and at the end the 8B magic number.
 /// 0xdb4775248b80fb57.
 pub struct TableBuilder<'a, Dst: Write, FilterPol: FilterPolicy> {
-    o: Options,
+    opt: Options,
     dst: Dst,
 
     offset: usize,
@@ -109,28 +114,31 @@ pub struct TableBuilder<'a, Dst: Write, FilterPol: FilterPolicy> {
 
 impl<'a, Dst: Write> TableBuilder<'a, Dst, NoFilterPolicy> {
     pub fn new_no_filter(opt: Options, dst: Dst) -> TableBuilder<'a, Dst, NoFilterPolicy> {
-        TableBuilder {
-            o: opt,
-            dst,
-            offset: 0,
-            prev_block_last_key: vec![],
-            num_entries: 0,
-            data_block: Some(BlockBuilder::new(opt)),
-            index_block: Some(BlockBuilder::new(opt)),
-            filter_block: None,
-        }
+        TableBuilder::new(opt, dst, NoFilterPolicy)
     }
 }
 
+/// TableBuilder is used for building a new SSTable, It groups entries into blocks,
+/// calculating checksums and bloom filter.
+/// It's recommended that you use InternalFilterPolicy as FilterPol, as that policy extracts the
+/// underlying user keys from the InternalKeys used as keys in the table.
 impl<'a, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, Dst, FilterPol> {
-    pub fn new(opt: Options, dst: Dst, fpol: FilterPol) -> TableBuilder<'a, Dst, FilterPol> {
+    /// Create a new table builder.
+    /// The comparator in opt will be wrapped in a InternalKeyCmp.
+    pub fn new(mut opt: Options, dst: Dst, fpol: FilterPol) -> TableBuilder<'a, Dst, FilterPol> {
+        opt.cmp = Arc::new(Box::new(InternalKeyCmp(opt.cmp.clone())));
+        TableBuilder::new_raw(opt, dst, fpol)
+    }
+
+    /// Like new(), but doesn't wrap the comparator in an InternalKeyCmp (for testing)
+    pub fn new_raw(opt: Options, dst: Dst, fpol: FilterPol) -> TableBuilder<'a, Dst, FilterPol> {
         TableBuilder {
-            o: opt,
+            opt: opt.clone(),
             dst,
             offset: 0,
             prev_block_last_key: vec![],
             num_entries: 0,
-            data_block: Some(BlockBuilder::new(opt)),
+            data_block: Some(BlockBuilder::new(opt.clone())),
             index_block: Some(BlockBuilder::new(opt)),
             filter_block: Some(FilterBlockBuilder::new(fpol)),
         }
@@ -140,11 +148,15 @@ impl<'a, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, Dst, FilterPol> {
         self.num_entries
     }
 
+    /// Add a key to the table. The key as to be lexically greater or equal to the last one added.
     pub fn add(&mut self, key: InternalKey<'a>, val: &[u8]) {
         assert!(self.data_block.is_some());
-        assert!(self.num_entries == 0 || cmp(&self.prev_block_last_key, key) == Ordering::Less);
 
-        if self.data_block.as_ref().unwrap().size_estimate() > self.o.block_size {
+        if !self.prev_block_last_key.is_empty() {
+            assert!(self.opt.cmp.cmp(&self.prev_block_last_key, key) == Ordering::Less);
+        }
+
+        if self.data_block.as_ref().unwrap().size_estimate() > self.opt.block_size {
             self.write_data_block(key);
         }
 
@@ -158,15 +170,11 @@ impl<'a, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, Dst, FilterPol> {
         dblock.add(key, val);
     }
 
-    /// Writes an index entry for the current data_block where `next_key` is the first key of the
-    /// next block.
-    /// Writes an index entry for the current data_block where `next_key` is the first key of the
-    /// next block.
     fn write_data_block(&mut self, next_key: InternalKey) {
         assert!(self.data_block.is_some());
 
         let block = self.data_block.take().unwrap();
-        let sep = find_shortest_sep(block.last_key(), next_key);
+        let sep = find_shortest_sep(&self.opt.cmp, block.last_key(), next_key);
         self.prev_block_last_key = Vec::from(block.last_key());
         let contents = block.finish();
 
@@ -178,9 +186,9 @@ impl<'a, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, Dst, FilterPol> {
             .as_mut()
             .unwrap()
             .add(&sep, &handle_enc[0..enc_len]);
-        self.data_block = Some(BlockBuilder::new(self.o));
+        self.data_block = Some(BlockBuilder::new(self.opt.clone()));
 
-        let ctype = self.o.compression_type;
+        let ctype = self.opt.compression_type;
         self.write_block(contents, ctype);
 
         if let Some(ref mut fblock) = self.filter_block {
@@ -196,7 +204,7 @@ impl<'a, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, Dst, FilterPol> {
         let mut digest = crc32::Digest::new(crc32::CASTAGNOLI);
 
         digest.write(&block);
-        digest.write(&[self.o.compression_type as u8; 1]);
+        digest.write(&[self.opt.compression_type as u8; 1]);
         digest.sum32().encode_fixed(&mut buf);
 
         // TODO: Handle errors here.
@@ -213,16 +221,24 @@ impl<'a, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, Dst, FilterPol> {
 
     pub fn finish(mut self) {
         assert!(self.data_block.is_some());
-        let ctype = self.o.compression_type;
+        let ctype = self.opt.compression_type;
 
-        // If there's a pending data block, write that one
-        let flush_last_block = self.data_block.as_ref().unwrap().entries() > 0;
-        if flush_last_block {
-            self.write_data_block(&[0xffu8; 1]);
+        // If there's a pending data block, write it
+        if self.data_block.as_ref().unwrap().entries() > 0 {
+            // Find a key reliably past the last key
+            // NOTE: This only works if the basic comparator is DefaultCmp. (not a problem as long
+            // as we don't accept comparators from users)
+            let mut past_block =
+                Vec::with_capacity(self.data_block.as_ref().unwrap().last_key().len() + 1);
+            // Push 255 to the beginning
+            past_block.extend_from_slice(&[0xff; 1]);
+            past_block.extend_from_slice(self.data_block.as_ref().unwrap().last_key());
+
+            self.write_data_block(&past_block);
         }
 
         // Create metaindex block
-        let mut meta_ix_block = BlockBuilder::new(self.o);
+        let mut meta_ix_block = BlockBuilder::new(self.opt.clone());
 
         if self.filter_block.is_some() {
             // if there's a filter block, write the filter block and add it to the metaindex block.
@@ -256,37 +272,41 @@ impl<'a, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, Dst, FilterPol> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use crate::{
         blockhandle::BlockHandle,
         filter::BloomPolicy,
         options::Options,
         table_builder::{find_shortest_sep, Footer, TableBuilder},
+        types::{Cmp, DefaultCmp},
     };
 
     #[test]
     fn test_shortest_sep() {
+        let cmp = Arc::new(Box::new(DefaultCmp) as Box<dyn Cmp>);
         assert_eq!(
-            find_shortest_sep("abcd".as_bytes(), "abcf".as_bytes()),
+            find_shortest_sep(&cmp, "abcd".as_bytes(), "abcf".as_bytes()),
             "abce".as_bytes()
         );
         assert_eq!(
-            find_shortest_sep("abcdefghi".as_bytes(), "abcffghi".as_bytes()),
-            "abce".as_bytes()
+            find_shortest_sep(&cmp, "abcdefghi".as_bytes(), "abcffghi".as_bytes()),
+            "abceefghi".as_bytes()
         );
         assert_eq!(
-            find_shortest_sep("a".as_bytes(), "a".as_bytes()),
+            find_shortest_sep(&cmp, "a".as_bytes(), "a".as_bytes()),
             "a".as_bytes()
         );
         assert_eq!(
-            find_shortest_sep("a".as_bytes(), "b".as_bytes()),
+            find_shortest_sep(&cmp, "a".as_bytes(), "b".as_bytes()),
             "a".as_bytes()
         );
         assert_eq!(
-            find_shortest_sep("abc".as_bytes(), "zzz".as_bytes()),
-            "b".as_bytes()
+            find_shortest_sep(&cmp, "abc".as_bytes(), "zzz".as_bytes()),
+            "bbc".as_bytes()
         );
         assert_eq!(
-            find_shortest_sep("".as_bytes(), "".as_bytes()),
+            find_shortest_sep(&cmp, "".as_bytes(), "".as_bytes()),
             "".as_bytes()
         );
     }
@@ -312,7 +332,7 @@ mod tests {
             block_restart_interval: 3,
             ..Default::default()
         };
-        let mut b = TableBuilder::new(opt, &mut d, BloomPolicy::new(4));
+        let mut b = TableBuilder::new_raw(opt, &mut d, BloomPolicy::new(4));
 
         let data = vec![
             ("abc", "def"),
@@ -332,12 +352,12 @@ mod tests {
     #[should_panic]
     fn test_bad_input() {
         let mut d = Vec::with_capacity(512);
-        let o = Options {
+        let opt = Options {
             block_restart_interval: 3,
             ..Default::default()
         };
 
-        let mut b = TableBuilder::new(o, &mut d, BloomPolicy::new(4));
+        let mut b = TableBuilder::new_raw(opt, &mut d, BloomPolicy::new(4));
 
         // Test Two equal consecution keys
         let data = vec![

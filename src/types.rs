@@ -7,8 +7,24 @@ pub enum ValueType {
     TypeValue = 1,
 }
 
-/// Represents a sequence number of a single entry.
+// Represents a sequence number of a single entry.
 pub type SequenceNumber = u64;
+
+/// Comparator trait, supporting types that can be nested (i.e., add additional functionality on
+/// top of an inner comparator).
+pub trait Cmp {
+    fn cmp(&self, a: &[u8], b: &[u8]) -> Ordering;
+}
+
+/// Lexical comparator.
+#[derive(Clone)]
+pub struct DefaultCmp;
+
+impl Cmp for DefaultCmp {
+    fn cmp(&self, a: &[u8], b: &[u8]) -> Ordering {
+        a.cmp(b)
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum Status {
