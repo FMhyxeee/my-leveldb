@@ -42,6 +42,7 @@ pub fn cmp(a: &[u8], b: &[u8]) -> Ordering {
     a.cmp(b)
 }
 
+/// Denotes a key range
 pub struct Range<'a> {
     pub start: &'a [u8],
     pub limit: &'a [u8],

@@ -455,7 +455,7 @@ mod tests {
         }
 
         let block_contents = builder.finish();
-        let mut block = Block::new(o.clone(), block_contents).iter();
+        let mut block = Block::new(o, block_contents).iter();
 
         assert!(!block.valid());
         assert_eq!(
@@ -491,7 +491,7 @@ mod tests {
 
         let block_contents = builder.finish();
 
-        let mut block = Block::new(o.clone(), block_contents).iter();
+        let mut block = Block::new(o, block_contents).iter();
 
         block.seek("prefix_key2".as_bytes());
         assert!(block.valid());
