@@ -7,7 +7,6 @@ use integer_encoding::{FixedInt, VarInt};
 
 // The following typedefs are used to distinguish between the different key formats used internally
 // by different modules.
-
 // TODO: At some point, convert those into actual types with conversion between them, That's a lot
 // of boilerpalce, but increases type safety.
 
