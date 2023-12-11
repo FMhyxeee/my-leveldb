@@ -5,11 +5,11 @@ use std::{cmp::Ordering, io::Write, sync::Arc};
 use crate::{
     block::{BlockBuilder, BlockContents},
     blockhandle::BlockHandle,
+    cmp::InternalKeyCmp,
     filter::{FilterPolicy, NoFilterPolicy},
     filter_block::FilterBlockBuilder,
-    key_types::{InternalKey, InternalKeyCmp},
+    key_types::InternalKey,
     options::{CompressionType, Options},
-    types::Cmp,
 };
 
 pub const FOOTER_LENGTH: usize = 40;
@@ -19,37 +19,6 @@ pub const MAGIC_FOOTER_ENCODED: [u8; 8] = [0x57, 0xfb, 0x80, 0x8b, 0x24, 0x75, 0
 
 pub const TABLE_BLOCK_COMPRESS_LEN: usize = 1;
 pub const TBALE_BLOCK_CKSUM_LEN: usize = 4;
-
-fn find_shortest_sep<'a>(
-    cmp: &Arc<Box<dyn Cmp>>,
-    lo: InternalKey<'a>,
-    hi: InternalKey<'a>,
-) -> Vec<u8> {
-    let min = if lo.len() < hi.len() {
-        lo.len()
-    } else {
-        hi.len()
-    };
-
-    let mut diff_at = 0;
-
-    while diff_at < min && lo[diff_at] == hi[diff_at] {
-        diff_at += 1;
-    }
-
-    if diff_at == min {
-        Vec::from(lo)
-    } else {
-        if lo[diff_at] < 0xff && lo[diff_at] + 1 < hi[diff_at] {
-            let mut result = lo.to_vec();
-            result[diff_at] += 1;
-            println!("{:?}", (&result, hi));
-            assert_eq!(cmp.cmp(&result, hi), Ordering::Less);
-            return result;
-        }
-        Vec::from(lo)
-    }
-}
 
 /// Footer is a helper for encoding/decoding a table footer.
 pub struct Footer {
@@ -174,7 +143,7 @@ impl<'a, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, Dst, FilterPol> {
         assert!(self.data_block.is_some());
 
         let block = self.data_block.take().unwrap();
-        let sep = find_shortest_sep(&self.opt.cmp, block.last_key(), next_key);
+        let sep = self.opt.cmp.find_shortest_sep(block.last_key(), next_key);
         self.prev_block_last_key = Vec::from(block.last_key());
         let contents = block.finish();
 
@@ -226,15 +195,12 @@ impl<'a, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, Dst, FilterPol> {
         // If there's a pending data block, write it
         if self.data_block.as_ref().unwrap().entries() > 0 {
             // Find a key reliably past the last key
-            // NOTE: This only works if the basic comparator is DefaultCmp. (not a problem as long
-            // as we don't accept comparators from users)
-            let mut past_block =
-                Vec::with_capacity(self.data_block.as_ref().unwrap().last_key().len() + 1);
-            // Push 255 to the beginning
-            past_block.extend_from_slice(&[0xff; 1]);
-            past_block.extend_from_slice(self.data_block.as_ref().unwrap().last_key());
+            let key_past_last = self
+                .opt
+                .cmp
+                .find_short_succ(self.data_block.as_ref().unwrap().last_key());
 
-            self.write_data_block(&past_block);
+            self.write_data_block(&key_past_last);
         }
 
         // Create metaindex block
@@ -272,44 +238,13 @@ impl<'a, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, Dst, FilterPol> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use crate::{
         blockhandle::BlockHandle,
         filter::BloomPolicy,
         options::Options,
-        table_builder::{find_shortest_sep, Footer, TableBuilder},
-        types::{Cmp, DefaultCmp},
+        table_builder::{Footer, TableBuilder},
     };
-
-    #[test]
-    fn test_shortest_sep() {
-        let cmp = Arc::new(Box::new(DefaultCmp) as Box<dyn Cmp>);
-        assert_eq!(
-            find_shortest_sep(&cmp, "abcd".as_bytes(), "abcf".as_bytes()),
-            "abce".as_bytes()
-        );
-        assert_eq!(
-            find_shortest_sep(&cmp, "abcdefghi".as_bytes(), "abcffghi".as_bytes()),
-            "abceefghi".as_bytes()
-        );
-        assert_eq!(
-            find_shortest_sep(&cmp, "a".as_bytes(), "a".as_bytes()),
-            "a".as_bytes()
-        );
-        assert_eq!(
-            find_shortest_sep(&cmp, "a".as_bytes(), "b".as_bytes()),
-            "a".as_bytes()
-        );
-        assert_eq!(
-            find_shortest_sep(&cmp, "abc".as_bytes(), "zzz".as_bytes()),
-            "bbc".as_bytes()
-        );
-        assert_eq!(
-            find_shortest_sep(&cmp, "".as_bytes(), "".as_bytes()),
-            "".as_bytes()
-        );
-    }
 
     #[test]
     fn test_footer() {

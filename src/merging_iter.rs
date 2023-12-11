@@ -1,9 +1,6 @@
 use std::{cmp::Ordering, sync::Arc};
 
-use crate::{
-    options::Options,
-    types::{Cmp, LdbIterator},
-};
+use crate::{cmp::Cmp, options::Options, types::LdbIterator};
 
 /// Warning: This module is kinda messy. The original implementation is not that much better thought :-);
 ///

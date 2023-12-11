@@ -1,7 +1,6 @@
 //! A collection of fundamentail and/or simple types used by other modules
 
-use std::cmp::Ordering;
-
+#[derive(Debug, PartialEq, PartialOrd)]
 pub enum ValueType {
     TypeDeletion = 0,
     TypeValue = 1,
@@ -10,21 +9,7 @@ pub enum ValueType {
 // Represents a sequence number of a single entry.
 pub type SequenceNumber = u64;
 
-/// Comparator trait, supporting types that can be nested (i.e., add additional functionality on
-/// top of an inner comparator).
-pub trait Cmp {
-    fn cmp(&self, a: &[u8], b: &[u8]) -> Ordering;
-}
-
-/// Lexical comparator.
-#[derive(Clone)]
-pub struct DefaultCmp;
-
-impl Cmp for DefaultCmp {
-    fn cmp(&self, a: &[u8], b: &[u8]) -> Ordering {
-        a.cmp(b)
-    }
-}
+pub const MAX_SEQUENCE_NUMBER: SequenceNumber = (1 << 56) - 1;
 
 #[derive(Clone, Debug)]
 pub enum Status {
@@ -36,12 +21,7 @@ pub enum Status {
     IOError(String),
 }
 
-pub type CmpFn = dyn Fn(&[u8], &[u8]) -> Ordering;
-
-pub fn cmp(a: &[u8], b: &[u8]) -> Ordering {
-    a.cmp(b)
-}
-
+/// Denotes a key range
 pub struct Range<'a> {
     pub start: &'a [u8],
     pub limit: &'a [u8],
