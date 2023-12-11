@@ -46,11 +46,7 @@ impl Cmp for DefaultCmp {
             diff_at += 1;
         }
 
-        // extend one slice by a 0 byte
-        // e.g. abc/abd => abc abc\0 abd
-        let mut r = Vec::from(a);
-        r.extend_from_slice(&[0x00]);
-        r
+        a.to_vec()
     }
 
     fn find_short_succ(&self, a: &[u8]) -> Vec<u8> {
@@ -183,7 +179,7 @@ mod tests {
         );
         assert_eq!(
             DefaultCmp.find_shortest_sep("abc".as_bytes(), "acd".as_bytes()),
-            "abc\0".as_bytes()
+            "abc".as_bytes()
         );
         assert_eq!(
             DefaultCmp.find_shortest_sep("abcdefghi".as_bytes(), "abcffghi".as_bytes()),
@@ -195,7 +191,7 @@ mod tests {
         );
         assert_eq!(
             DefaultCmp.find_shortest_sep("a".as_bytes(), "b".as_bytes()),
-            "a\0".as_bytes()
+            "a".as_bytes()
         );
         assert_eq!(
             DefaultCmp.find_shortest_sep("abc".as_bytes(), "zzz".as_bytes()),
@@ -246,7 +242,7 @@ mod tests {
                 LookupKey::new("abc".as_bytes(), 1).internal_key(),
                 LookupKey::new("acd".as_bytes(), 2).internal_key()
             ),
-            LookupKey::new("abc\0".as_bytes(), 1).internal_key()
+            LookupKey::new("abc".as_bytes(), 1).internal_key()
         );
         assert_eq!(
             cmp.find_shortest_sep(
