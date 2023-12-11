@@ -55,6 +55,7 @@ impl Default for Options {
             paranoid_checks: false,
             write_buffer_size: WRITE_BUFFER_SIZE,
             max_open_file: 1 << 10,
+            // 2000 elements by default
             block_cache: Arc::new(Mutex::new(Cache::new(
                 BLOCK_CACHE_CAPACITY / BLOCK_MAX_SIZE,
             ))),
