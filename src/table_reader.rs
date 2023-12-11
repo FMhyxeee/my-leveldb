@@ -10,9 +10,10 @@ use crate::{
     block::{Block, BlockIter},
     blockhandle::BlockHandle,
     cache::CacheID,
+    cmp::InternalKeyCmp,
     filter::{FilterPolicy, InternalFilterPolicy},
     filter_block::FilterBlockReader,
-    key_types::{InternalKey, InternalKeyCmp},
+    key_types::InternalKey,
     options::{self, CompressionType, Options},
     table_builder::{self, Footer},
     types::LdbIterator,
@@ -309,7 +310,7 @@ impl<'a, R: Read + Seek, FP: FilterPolicy> LdbIterator for TableIterator<'a, R, 
         self.index_block.seek(to);
 
         if let Some((past_block, handle)) = self.index_block.current() {
-            if self.opt.cmp.cmp(to, &past_block) == Ordering::Less {
+            if self.opt.cmp.cmp(to, &past_block) <= Ordering::Equal {
                 // ok, found right block: continue below
                 if let Ok(()) = self.load_block(&handle) {
                     self.current_block.seek(to);

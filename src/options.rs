@@ -3,7 +3,8 @@ use std::sync::{Arc, Mutex};
 use crate::{
     block::Block,
     cache::Cache,
-    types::{Cmp, DefaultCmp, SequenceNumber},
+    cmp::{Cmp, DefaultCmp},
+    types::SequenceNumber,
 };
 
 const KB: usize = 1 << 10;
@@ -31,9 +32,6 @@ pub fn int_to_compressiontype(i: u32) -> Option<CompressionType> {
 ///
 #[derive(Clone)]
 pub struct Options {
-    // NOTE: do NOT set this to something different than DefaultCmp, otherwise some things will
-    // break (at the moment). Comparators would need extra functionality to fix this (e.g., string
-    // separator finding)
     pub cmp: Arc<Box<dyn Cmp>>,
     pub create_if_missing: bool,
     pub error_if_exists: bool,
@@ -57,6 +55,7 @@ impl Default for Options {
             paranoid_checks: false,
             write_buffer_size: WRITE_BUFFER_SIZE,
             max_open_file: 1 << 10,
+            // 2000 elements by default
             block_cache: Arc::new(Mutex::new(Cache::new(
                 BLOCK_CACHE_CAPACITY / BLOCK_MAX_SIZE,
             ))),

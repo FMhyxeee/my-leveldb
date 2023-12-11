@@ -1,6 +1,9 @@
 use std::cmp::Ordering;
 
-use crate::types::{Cmp, DefaultCmp, LdbIterator};
+use crate::{
+    cmp::{Cmp, DefaultCmp},
+    types::LdbIterator,
+};
 
 pub struct TestLdbIter<'a> {
     v: Vec<(&'a [u8], &'a [u8])>,

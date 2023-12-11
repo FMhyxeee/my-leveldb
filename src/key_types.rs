@@ -1,15 +1,12 @@
-use std::{cmp::Ordering, sync::Arc};
-
 use crate::{
     options::{int_to_compressiontype, CompressionType},
-    types::{Cmp, SequenceNumber, ValueType},
+    types::{SequenceNumber, ValueType},
 };
 
 use integer_encoding::{FixedInt, VarInt};
 
 // The following typedefs are used to distinguish between the different key formats used internally
 // by different modules.
-
 // TODO: At some point, convert those into actual types with conversion between them, That's a lot
 // of boilerpalce, but increases type safety.
 
@@ -79,10 +76,15 @@ impl LookupKey {
 }
 
 /// Parses a tag into (type, sequence number)
-pub fn parse_tag(tag: u64) -> (u8, u64) {
+pub fn parse_tag(tag: u64) -> (ValueType, u64) {
     let seq = tag >> 8;
     let typ = tag & 0xff;
-    (typ as u8, seq)
+
+    match typ {
+        0 => (ValueType::TypeDeletion, seq),
+        1 => (ValueType::TypeValue, seq),
+        _ => (ValueType::TypeValue, seq),
+    }
 }
 
 /// A memtable key is a bytestring containing (keylen, key, tag, vallen, val). This function
@@ -161,54 +163,6 @@ pub fn parse_internal_key(ikey: InternalKey) -> (CompressionType, u64, UserKey) 
     let ctype = int_to_compressiontype(ctype as u32).unwrap_or(CompressionType::CompressionNone);
 
     (ctype, seq, &ikey[0..ikey.len() - 8])
-}
-
-/// Same as memtable_key_cmp, but for InternalKeys.
-#[derive(Clone)]
-pub struct InternalKeyCmp(pub Arc<Box<dyn Cmp>>);
-
-impl Cmp for InternalKeyCmp {
-    fn cmp(&self, a: &[u8], b: &[u8]) -> Ordering {
-        let (_, seqa, keya) = parse_internal_key(a);
-        let (_, seqb, keyb) = parse_internal_key(b);
-
-        match self.0.cmp(keya, keyb) {
-            Ordering::Less => Ordering::Less,
-            Ordering::Greater => Ordering::Greater,
-            // reverse comparison!
-            Ordering::Equal => seqb.cmp(&seqa),
-        }
-    }
-}
-
-/// An internal comparator wrapping a user-supplied comparator. This comparator is used to compare
-/// memtable keys, which contain length prefixes and a sequence number.
-/// The ordering is determined by asking the wrapped comparator; ties are broken by *reverse*
-/// ordering the sequence numbers. (This means that when having an entry abx/4 and searching for
-/// abx/5, then abx/4 is counted as "greater-or-equal", making snapshot functionality work at all)
-#[derive(Clone)]
-pub struct MemtableKeyCmp(pub Arc<Box<dyn Cmp>>);
-
-impl Cmp for MemtableKeyCmp {
-    fn cmp(&self, a: &[u8], b: &[u8]) -> Ordering {
-        let (akeylen, akeyoff, atag, _, _) = parse_memtable_key(a);
-        let (bkeylen, bkeyoff, btag, _, _) = parse_memtable_key(b);
-
-        let userkey_a = &a[akeyoff..akeyoff + akeylen];
-        let userkey_b = &b[bkeyoff..bkeyoff + bkeylen];
-
-        match self.0.cmp(userkey_a, userkey_b) {
-            Ordering::Less => Ordering::Less,
-            Ordering::Greater => Ordering::Greater,
-            Ordering::Equal => {
-                let (_, aseq) = parse_tag(atag);
-                let (_, bseq) = parse_tag(btag);
-
-                // reverse!
-                bseq.cmp(&aseq)
-            }
-        }
-    }
 }
 
 #[cfg(test)]

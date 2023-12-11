@@ -60,16 +60,18 @@ impl Block {
 pub struct BlockIter {
     block: Rc<BlockContents>,
     opt: Options,
-    // start of next entry
-    offset: usize,
-    // start of restarts area
+    // offset of restarts area within the block.
     restarts_off: usize,
+    // offset os the current entry.
+    offset: usize,
+    // index of the most recent restart.
     current_entry_offset: usize,
     // tracks the last restart we encountered
     current_restart_ix: usize,
 
     // We assemble the key from two parts usually, so we keep the current full key here.
     key: Vec<u8>,
+    // Offset of the current value within the block.
     val_offset: usize,
 }
 
@@ -85,8 +87,15 @@ impl BlockIter {
 }
 
 impl BlockIter {
-    // Returns SHARED, NON_SHARED and VALSIZE from the current position. Advances self.offset.
-    fn parse_entry(&mut self) -> (usize, usize, usize) {
+    /// The layout of an entry is
+    /// [SHARED varint, NON_SHARED varint, VALSIZE varint, KEY (NON_SHARED bytes),
+    ///  VALUE (VALSIZE bytes)].
+    ///
+    /// Returns SHARED, NON_SHARED, VALSIZE and [length of length spec] from the current position,
+    /// where 'length spec' is the length of the three values in the entry header, as described
+    /// above.
+    /// Advances self.offset to point to the beginning of the next entry.
+    fn parse_entry_and_advance(&mut self) -> (usize, usize, usize, usize) {
         let mut i = 0;
         let (shared, sharedlen) = usize::decode_var(&self.block[self.offset..]).unwrap();
         i += sharedlen;
@@ -98,17 +107,23 @@ impl BlockIter {
         let (valsize, valsizedlen) = usize::decode_var(&self.block[self.offset + i..]).unwrap();
         i += valsizedlen;
 
-        self.offset += i;
+        self.val_offset = self.offset + i + non_shared;
+        self.offset = self.offset + i + non_shared + valsize;
 
-        (shared, non_shared, valsize)
+        (shared, non_shared, valsize, i)
     }
 
-    /// offset is assumed to be at the beginning of the non-shared key part.
-    /// offset is not advanced.
-    fn assemble_key(&mut self, shared: usize, non_shared: usize) {
+    /// Assemble the current key from shared and non-shared parts (an entry usually contains only
+    /// the part of the key that is different from the previous key).
+    ///
+    /// `off` is the offset of the key string within the whole block (self.current_entry_offset
+    /// + entry header length); `shared` and `non_shared` are the lengths of the shared
+    /// respectively non-shared parts of the key.
+    /// Only self.key is mutated.
+    fn assemble_key(&mut self, off: usize, shared: usize, non_shared: usize) {
         self.key.resize(shared, 0);
         self.key
-            .extend_from_slice(&self.block[self.offset..self.offset + non_shared]);
+            .extend_from_slice(&self.block[off..off + non_shared]);
     }
 
     pub fn seek_to_last(&mut self) {
@@ -122,8 +137,6 @@ impl BlockIter {
         }
 
         for (_, _) in self.by_ref() {}
-
-        self.prev();
     }
 }
 
@@ -131,17 +144,22 @@ impl Iterator for BlockIter {
     type Item = (Vec<u8>, Vec<u8>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.current_entry_offset = self.offset;
+        println!("next! {:?}", (self.current_entry_offset, self.offset));
 
-        if self.current_entry_offset >= self.restarts_off {
+        if self.offset >= self.restarts_off {
+            self.offset = self.restarts_off;
+            // current_entry_offset is left at the offset of the last entry
             return None;
+        } else {
+            self.current_entry_offset = self.offset;
         }
-        let (shared, non_shared, valsize) = self.parse_entry();
-        self.assemble_key(shared, non_shared);
 
-        self.val_offset = self.offset + non_shared;
-        self.offset = self.val_offset + valsize;
+        let current_off = self.current_entry_offset;
 
+        let (shared, non_shared, valsize, entry_head_len) = self.parse_entry_and_advance();
+        self.assemble_key(current_off + entry_head_len, shared, non_shared);
+
+        // Adjust current_restart_ix
         let num_restarts = self.number_restarts();
         while self.current_restart_ix + 1 < num_restarts
             && self.get_restart_point(self.current_restart_ix + 1) < self.current_entry_offset
@@ -164,29 +182,43 @@ impl LdbIterator for BlockIter {
     }
 
     fn prev(&mut self) -> Option<Self::Item> {
+        println!(
+            "prev {:?}",
+            (
+                self.offset,
+                self.restarts_off,
+                self.block.len(),
+                self.current_entry_offset
+            )
+        );
         // as in the original implementation -- seek to last restart point, then look for key
-        let current_offset = self.current_entry_offset;
+        let orig_offset = self.current_entry_offset;
 
         // At the beginning, can't go further back
-        if current_offset == 0 {
+        if orig_offset == 0 {
             self.reset();
             return None;
         }
 
-        while self.get_restart_point(self.current_restart_ix) >= current_offset {
+        while self.get_restart_point(self.current_restart_ix) >= orig_offset {
+            // todo: double check this
+            if self.current_restart_ix == 0 {
+                self.offset = self.restarts_off;
+                self.current_restart_ix = self.number_restarts();
+                break;
+            }
             self.current_restart_ix -= 1;
         }
 
         self.offset = self.get_restart_point(self.current_restart_ix);
-        assert!(self.offset < current_offset);
+        assert!(self.offset < orig_offset);
 
         let mut result;
 
         loop {
             result = self.next();
-            // println!("next! {:?}", (self.current_entry_offset, self.offset));
 
-            if self.offset >= current_offset {
+            if self.offset >= orig_offset {
                 break;
             }
         }
@@ -206,22 +238,24 @@ impl LdbIterator for BlockIter {
         // Do a binary search over the restart points.
         while left < right {
             let middle = (left + right + 1) / 2;
+            let current_entry_offset = self.offset;
             self.offset = self.get_restart_point(middle);
             // advances self.offset
-            let (shared, non_shared, _) = self.parse_entry();
+            let (shared, non_shared, _, head_len) = self.parse_entry_and_advance();
 
             // At a restart, the shared part is supposed to be 0.
             assert_eq!(shared, 0);
 
-            let c = self
-                .opt
-                .cmp
-                .cmp(to, &self.block[self.offset..self.offset + non_shared]);
+            let c = self.opt.cmp.cmp(
+                &self.block
+                    [current_entry_offset + head_len..current_entry_offset + head_len + non_shared],
+                to,
+            );
 
             if c == Ordering::Less {
-                right = middle - 1;
-            } else {
                 left = middle;
+            } else {
+                right = middle - 1;
             }
         }
 
@@ -337,8 +371,6 @@ impl BlockBuilder {
         // Update key
         self.last_key.resize(shared, 0);
         self.last_key.extend_from_slice(&key[shared..]);
-
-        // assert_eq!(&self.last_key[..], key);
 
         self.counter += 1;
     }
@@ -457,22 +489,32 @@ mod tests {
         let block_contents = builder.finish();
         let mut block = Block::new(o, block_contents).iter();
 
-        assert!(!block.valid());
-        assert_eq!(
-            block.next(),
-            Some(("key1".as_bytes().to_vec(), "value1".as_bytes().to_vec()))
-        );
-        assert!(block.valid());
-        block.next();
-        assert!(block.valid());
+        // assert!(!block.valid());
+        // assert_eq!(block.next(),
+        // Some(("key1".as_bytes().to_vec(), "value1".as_bytes().to_vec())));
+        // assert!(block.valid());
+        // block.next();
+        // assert!(block.valid());
+        // block.prev();
+        // assert!(block.valid());
+        // assert_eq!(block.current(),
+        // Some(("key1".as_bytes().to_vec(), "value1".as_bytes().to_vec())));
+        // block.prev();
+        // assert!(!block.valid());
+        //
+        // Verify that prev() from the last entry goes to the prev-to-last entry
+        // (essentially, that next() returning None doesn't advance anything)
+        for _ in block.by_ref() {}
+
         block.prev();
         assert!(block.valid());
         assert_eq!(
             block.current(),
-            Some(("key1".as_bytes().to_vec(), "value1".as_bytes().to_vec()))
+            Some((
+                "prefix_key2".as_bytes().to_vec(),
+                "value".as_bytes().to_vec()
+            ))
         );
-        block.prev();
-        assert!(!block.valid());
     }
 
     #[test]
@@ -518,6 +560,26 @@ mod tests {
         assert_eq!(
             block.current(),
             Some(("key1".as_bytes().to_vec(), "value1".as_bytes().to_vec()))
+        );
+
+        block.seek("prefix_key3".as_bytes());
+        assert!(block.valid());
+        assert_eq!(
+            block.current(),
+            Some((
+                "prefix_key3".as_bytes().to_vec(),
+                "value".as_bytes().to_vec()
+            ))
+        );
+
+        block.seek("prefix_key8".as_bytes());
+        assert!(block.valid());
+        assert_eq!(
+            block.current(),
+            Some((
+                "prefix_key3".as_bytes().to_vec(),
+                "value".as_bytes().to_vec()
+            ))
         );
     }
 

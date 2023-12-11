@@ -6,7 +6,7 @@ use std::{
 
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
-use crate::{key_types::MemtableKeyCmp, options::Options, types::LdbIterator};
+use crate::{cmp::MemtableKeyCmp, options::Options, types::LdbIterator};
 
 const MAX_HEIGHT: usize = 12;
 const BRANCHING_FACTOR: u32 = 4;
