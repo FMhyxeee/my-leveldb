@@ -38,14 +38,15 @@ pub trait LdbIterator: Iterator {
 
     /// Seek the iterator to `key` or the next bigger key. If the seek is invalid (past last
     /// element), the iterator is reset() and not valid.
+    /// After a seek to an existing key, current() returns that entry.
     fn seek(&mut self, key: &[u8]);
     /// Resets the iterator to the beginning.
     fn reset(&mut self);
     /// Returns true if the iterator is valid.
     fn valid(&self) -> bool;
-    /// Returns current item.
+    /// Return the current item (i.e. the item most recently returned by next())
     fn current(&self) -> Option<Self::Item>;
-    /// Go to the previous item. Panic if `!valid()`
+    /// Go to the previous item. This is inefficient for most iterators.
     fn prev(&mut self) -> Option<Self::Item>;
 
     fn seek_to_first(&mut self) {
