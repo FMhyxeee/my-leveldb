@@ -6,7 +6,7 @@ use crate::{
     block::{BlockBuilder, BlockContents},
     blockhandle::BlockHandle,
     cmp::InternalKeyCmp,
-    filter::{FilterPolicy, NoFilterPolicy},
+    filter::{BoxedFilterPolicy, NoFilterPolicy},
     filter_block::FilterBlockBuilder,
     key_types::InternalKey,
     options::{CompressionType, Options},
@@ -68,7 +68,7 @@ impl Footer {
 /// The FOOTER consists of a BlockHandle what points to the metaindex block, another pointing to
 /// the index block, padding to fill up to 40 B and at the end the 8B magic number.
 /// 0xdb4775248b80fb57.
-pub struct TableBuilder<'a, Dst: Write, FilterPol: FilterPolicy> {
+pub struct TableBuilder<'a, Dst: Write> {
     opt: Options,
     dst: Dst,
 
@@ -78,12 +78,12 @@ pub struct TableBuilder<'a, Dst: Write, FilterPol: FilterPolicy> {
 
     data_block: Option<BlockBuilder>,
     index_block: Option<BlockBuilder>,
-    filter_block: Option<FilterBlockBuilder<'a, FilterPol>>,
+    filter_block: Option<FilterBlockBuilder<'a>>,
 }
 
-impl<'a, Dst: Write> TableBuilder<'a, Dst, NoFilterPolicy> {
-    pub fn new_no_filter(opt: Options, dst: Dst) -> TableBuilder<'a, Dst, NoFilterPolicy> {
-        TableBuilder::new(opt, dst, NoFilterPolicy)
+impl<'a, Dst: Write> TableBuilder<'a, Dst> {
+    pub fn new_no_filter(opt: Options, dst: Dst) -> TableBuilder<'a, Dst> {
+        TableBuilder::new(opt, dst, NoFilterPolicy::new_wrap())
     }
 }
 
@@ -91,16 +91,16 @@ impl<'a, Dst: Write> TableBuilder<'a, Dst, NoFilterPolicy> {
 /// calculating checksums and bloom filter.
 /// It's recommended that you use InternalFilterPolicy as FilterPol, as that policy extracts the
 /// underlying user keys from the InternalKeys used as keys in the table.
-impl<'a, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, Dst, FilterPol> {
+impl<'a, Dst: Write> TableBuilder<'a, Dst> {
     /// Create a new table builder.
     /// The comparator in opt will be wrapped in a InternalKeyCmp.
-    pub fn new(mut opt: Options, dst: Dst, fpol: FilterPol) -> TableBuilder<'a, Dst, FilterPol> {
+    pub fn new(mut opt: Options, dst: Dst, fpol: BoxedFilterPolicy) -> TableBuilder<'a, Dst> {
         opt.cmp = Arc::new(Box::new(InternalKeyCmp(opt.cmp.clone())));
         TableBuilder::new_raw(opt, dst, fpol)
     }
 
     /// Like new(), but doesn't wrap the comparator in an InternalKeyCmp (for testing)
-    pub fn new_raw(opt: Options, dst: Dst, fpol: FilterPol) -> TableBuilder<'a, Dst, FilterPol> {
+    pub fn new_raw(opt: Options, dst: Dst, fpol: BoxedFilterPolicy) -> TableBuilder<'a, Dst> {
         TableBuilder {
             opt: opt.clone(),
             dst,
@@ -267,7 +267,7 @@ mod tests {
             block_restart_interval: 3,
             ..Default::default()
         };
-        let mut b = TableBuilder::new_raw(opt, &mut d, BloomPolicy::new(4));
+        let mut b = TableBuilder::new_raw(opt, &mut d, BloomPolicy::new_wrap(4));
 
         let data = vec![
             ("abc", "def"),
@@ -292,7 +292,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut b = TableBuilder::new_raw(opt, &mut d, BloomPolicy::new(4));
+        let mut b = TableBuilder::new_raw(opt, &mut d, BloomPolicy::new_wrap(4));
 
         // Test Two equal consecution keys
         let data = vec![

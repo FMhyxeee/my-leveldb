@@ -11,7 +11,7 @@ use crate::{
     blockhandle::BlockHandle,
     cache::CacheID,
     cmp::InternalKeyCmp,
-    filter::{FilterPolicy, InternalFilterPolicy},
+    filter::{BoxedFilterPolicy, InternalFilterPolicy},
     filter_block::FilterBlockReader,
     key_types::InternalKey,
     options::{self, CompressionType, Options},
@@ -92,7 +92,7 @@ impl TableBlock {
     }
 }
 
-pub struct Table<R: Read + Seek, FP: FilterPolicy> {
+pub struct Table<R: Read + Seek> {
     file: R,
     file_size: usize,
     cache_id: CacheID,
@@ -101,12 +101,17 @@ pub struct Table<R: Read + Seek, FP: FilterPolicy> {
 
     footer: Footer,
     indexblock: Block,
-    filters: Option<FilterBlockReader<FP>>,
+    filters: Option<FilterBlockReader>,
 }
 
-impl<R: Read + Seek, FP: FilterPolicy> Table<R, FP> {
+impl<R: Read + Seek> Table<R> {
     /// Creates a new table reader operating on unformatted keys(i.e., UserKeys).
-    pub fn new_raw(opt: Options, mut file: R, size: usize, fp: FP) -> Result<Table<R, FP>> {
+    pub fn new_raw(
+        opt: Options,
+        mut file: R,
+        size: usize,
+        fp: BoxedFilterPolicy,
+    ) -> Result<Table<R>> {
         let footer = read_footer(&mut file, size).unwrap();
 
         let indexblock = TableBlock::read_block(opt.clone(), &mut file, &footer.index)?;
@@ -154,14 +159,9 @@ impl<R: Read + Seek, FP: FilterPolicy> Table<R, FP> {
     /// Creates a new table reader operating on internal keys (i.e., InternalKey). This means that
     /// a different comparator (internal_key_cmp) and a different filter policy
     /// (InternalFilterPolicy) are used.
-    pub fn new(
-        mut opt: Options,
-        file: R,
-        size: usize,
-        fp: FP,
-    ) -> Result<Table<R, InternalFilterPolicy<FP>>> {
+    pub fn new(mut opt: Options, file: R, size: usize, fp: BoxedFilterPolicy) -> Result<Table<R>> {
         opt.cmp = Arc::new(Box::new(InternalKeyCmp(opt.cmp.clone())));
-        let t = Table::new_raw(opt, file, size, InternalFilterPolicy::new(fp))?;
+        let t = Table::new_raw(opt, file, size, InternalFilterPolicy::new_wrap(fp))?;
         Ok(t)
     }
 
@@ -193,7 +193,7 @@ impl<R: Read + Seek, FP: FilterPolicy> Table<R, FP> {
     }
 
     // Iterators read from the file; thus only one iterator can be borrowed (mutably) per scope
-    fn iter(&mut self) -> TableIterator<R, FP> {
+    fn iter(&mut self) -> TableIterator<R> {
         TableIterator {
             current_block: self.indexblock.iter(), // just for filling in here
             current_block_off: 0,
@@ -248,8 +248,8 @@ impl<R: Read + Seek, FP: FilterPolicy> Table<R, FP> {
 
 /// This iterator is a "TwoLevelIterator"; it uses an index block in order to get an offset hint
 /// into the data blocks.
-pub struct TableIterator<'a, R: 'a + Read + Seek, FP: 'a + FilterPolicy> {
-    table: &'a mut Table<R, FP>,
+pub struct TableIterator<'a, R: 'a + Read + Seek> {
+    table: &'a mut Table<R>,
     opt: Options,
     current_block: BlockIter,
     current_block_off: usize,
@@ -258,7 +258,7 @@ pub struct TableIterator<'a, R: 'a + Read + Seek, FP: 'a + FilterPolicy> {
     init: bool,
 }
 
-impl<'a, R: Read + Seek, FP: FilterPolicy> TableIterator<'a, R, FP> {
+impl<'a, R: Read + Seek> TableIterator<'a, R> {
     // Skips to the entry referenced by the next index block.
     // This is called once a block has run out of entries.
     fn skip_to_next_entry(&mut self) -> Result<bool> {
@@ -278,29 +278,39 @@ impl<'a, R: Read + Seek, FP: FilterPolicy> TableIterator<'a, R, FP> {
     }
 }
 
-impl<'a, R: Read + Seek, FP: FilterPolicy> Iterator for TableIterator<'a, R, FP> {
+impl<'a, R: Read + Seek> Iterator for TableIterator<'a, R> {
     type Item = (Vec<u8>, Vec<u8>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if !self.init {
-            self.init = true;
-            if self.skip_to_next_entry().is_err() {
-                return None;
+        // init essentially means that `current_block` is a data block (it's initially filled with
+        // an index block as filler).
+        if self.init {
+            if let Some((key, val)) = self.current_block.next() {
+                Some((key, val))
+            } else {
+                match self.skip_to_next_entry() {
+                    Ok(true) => self.next(),
+                    Ok(false) => None,
+                    // try next block, this might be corruption
+                    Err(_) => self.next(),
+                }
             }
-        }
-
-        self.init = true;
-        if let Some((key, val)) = self.current_block.next() {
-            Some((key, val))
-        } else if self.skip_to_next_entry().unwrap_or(false) {
-            self.next()
         } else {
-            None
+            match self.skip_to_next_entry() {
+                Ok(true) => {
+                    // Only initialize if we got an entry
+                    self.init = true;
+                    self.next()
+                }
+                Ok(false) => None,
+                // try next block from index, this might be corruption
+                Err(_) => self.next(),
+            }
         }
     }
 }
 
-impl<'a, R: Read + Seek, FP: FilterPolicy> LdbIterator for TableIterator<'a, R, FP> {
+impl<'a, R: Read + Seek> LdbIterator for TableIterator<'a, R> {
     // A call to valid() after seeking is necessary to ensure that the seek worked (e.g., no error
     // while reading from disk)
     fn seek(&mut self, to: &[u8]) {
@@ -387,6 +397,7 @@ mod tests {
         ]
     }
 
+    // Build a table containing raw keys (no format)
     fn build_table() -> (Vec<u8>, usize) {
         let mut d = Vec::with_capacity(512);
         let opt = Options {
@@ -396,7 +407,8 @@ mod tests {
         };
 
         {
-            let mut b = TableBuilder::new(opt, &mut d, BloomPolicy::new(4));
+            // Uses the standard comparator in opt.
+            let mut b = TableBuilder::new(opt, &mut d, BloomPolicy::new_wrap(4));
             let data = build_data();
 
             for &(k, v) in data.iter() {
@@ -411,6 +423,7 @@ mod tests {
         (d, size)
     }
 
+    // Build a table containing keys in InternalKey format.
     fn build_internal_table() -> (Vec<u8>, usize) {
         let mut d = Vec::with_capacity(512);
 
@@ -430,8 +443,12 @@ mod tests {
             .collect();
 
         {
-            let mut b =
-                TableBuilder::new(opt, &mut d, InternalFilterPolicy::new(BloomPolicy::new(4)));
+            // Uses InternalKeyCmp
+            let mut b = TableBuilder::new(
+                opt,
+                &mut d,
+                InternalFilterPolicy::new_wrap(BloomPolicy::new_wrap(4)),
+            );
 
             for (k, v) in data.iter() {
                 b.add(k.as_slice(), v.as_bytes());
@@ -457,7 +474,7 @@ mod tests {
             Options::default(),
             Cursor::new(&src as &[u8]),
             size,
-            BloomPolicy::new(4),
+            BloomPolicy::new_wrap(4),
         )
         .unwrap();
 
@@ -493,7 +510,7 @@ mod tests {
             Options::default(),
             Cursor::new(&src as &[u8]),
             size,
-            BloomPolicy::new(4),
+            BloomPolicy::new_wrap(4),
         )
         .unwrap();
         let mut iter = table.iter();
@@ -538,7 +555,7 @@ mod tests {
             Options::default(),
             Cursor::new(&src as &[u8]),
             size,
-            BloomPolicy::new(4),
+            BloomPolicy::new_wrap(4),
         )
         .unwrap();
         let filter_reader = table.filters.clone().unwrap();
@@ -561,7 +578,7 @@ mod tests {
             Options::default(),
             Cursor::new(&src as &[u8]),
             size,
-            BloomPolicy::new(4),
+            BloomPolicy::new_wrap(4),
         )
         .unwrap();
         let mut iter = table.iter();
@@ -597,7 +614,7 @@ mod tests {
             Options::default(),
             Cursor::new(&src as &[u8]),
             size,
-            BloomPolicy::new(4),
+            BloomPolicy::new_wrap(4),
         )
         .unwrap();
         let mut iter = table.iter();
@@ -637,7 +654,7 @@ mod tests {
             Options::default(),
             Cursor::new(&src as &[u8]),
             size,
-            BloomPolicy::new(4),
+            BloomPolicy::new_wrap(4),
         )
         .unwrap();
         let mut iter = table.iter();
@@ -665,7 +682,7 @@ mod tests {
             Options::default(),
             Cursor::new(&src as &[u8]),
             size,
-            BloomPolicy::new(4),
+            BloomPolicy::new_wrap(4),
         )
         .unwrap();
 
@@ -691,7 +708,7 @@ mod tests {
             Options::default(),
             Cursor::new(&src as &[u8]),
             size,
-            BloomPolicy::new(4),
+            BloomPolicy::new_wrap(4),
         )
         .unwrap();
         let filter_reader = table.filters.clone().unwrap();

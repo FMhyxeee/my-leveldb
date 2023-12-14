@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::filter::FilterPolicy;
+use crate::{block::BlockContents, filter::BoxedFilterPolicy};
 
 use integer_encoding::FixedInt;
 
@@ -22,8 +22,8 @@ fn get_filter_index(offset: usize, base_lg2: u32) -> u32 {
 ///
 /// where offsets are 4 bytes, offset of offsets is 4 bytes, and log2 of FILTER_BASE is 1 bytes.
 /// Two consecutive filter offsets my be the same.
-pub struct FilterBlockBuilder<'a, FP: FilterPolicy> {
-    policy: FP,
+pub struct FilterBlockBuilder<'a> {
+    policy: BoxedFilterPolicy,
     // filters, concatenated
     filters: Vec<u8>,
     filter_offsets: Vec<usize>,
@@ -31,8 +31,8 @@ pub struct FilterBlockBuilder<'a, FP: FilterPolicy> {
     keys: Vec<&'a [u8]>,
 }
 
-impl<'a, FP: FilterPolicy> FilterBlockBuilder<'a, FP> {
-    pub fn new(fp: FP) -> FilterBlockBuilder<'a, FP> {
+impl<'a> FilterBlockBuilder<'a> {
+    pub fn new(fp: BoxedFilterPolicy) -> FilterBlockBuilder<'a> {
         FilterBlockBuilder {
             policy: fp,
             // some pre-allocation
@@ -99,20 +99,20 @@ impl<'a, FP: FilterPolicy> FilterBlockBuilder<'a, FP> {
 }
 
 #[derive(Clone)]
-pub struct FilterBlockReader<FP: FilterPolicy> {
-    policy: FP,
-    block: Rc<Vec<u8>>,
+pub struct FilterBlockReader {
+    policy: BoxedFilterPolicy,
+    block: Rc<BlockContents>,
 
     offsets_offset: usize,
     filter_base_lg2: u32,
 }
 
-impl<FP: FilterPolicy> FilterBlockReader<FP> {
-    pub fn new_owned(pol: FP, data: Vec<u8>) -> FilterBlockReader<FP> {
+impl FilterBlockReader {
+    pub fn new_owned(pol: BoxedFilterPolicy, data: Vec<u8>) -> FilterBlockReader {
         FilterBlockReader::new(pol, Rc::new(data))
     }
 
-    pub fn new(pol: FP, data: Rc<Vec<u8>>) -> FilterBlockReader<FP> {
+    pub fn new(pol: BoxedFilterPolicy, data: Rc<Vec<u8>>) -> FilterBlockReader {
         assert!(data.len() >= 5);
 
         let fbase = data[data.len() - 1] as u32;
@@ -181,7 +181,7 @@ mod tests {
 
     fn produce_filter_block() -> Vec<u8> {
         let keys = get_keys();
-        let mut bld = FilterBlockBuilder::new(BloomPolicy::new(32));
+        let mut bld = FilterBlockBuilder::new(BloomPolicy::new_wrap(32));
 
         bld.start_block(0);
 
@@ -217,7 +217,7 @@ mod tests {
     #[test]
     fn test_filter_block_build_read() {
         let result = produce_filter_block();
-        let reader = FilterBlockReader::new_owned(BloomPolicy::new(32), result);
+        let reader = FilterBlockReader::new_owned(BloomPolicy::new_wrap(32), result);
 
         assert_eq!(
             reader.offset_of(get_filter_index(5121, FILTER_BASE_LOG2)),

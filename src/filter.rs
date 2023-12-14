@@ -1,7 +1,11 @@
+use std::sync::Arc;
+
 use integer_encoding::FixedInt;
 
 /// Encapsulates a filter algorithm allowing to search for keys more efficiently.
-pub trait FilterPolicy: Clone {
+/// Usually, policies are used as a BoxedFilterPolicy (see below), so they
+/// can be easily cloned and nested.
+pub trait FilterPolicy {
     /// Returns a string identifying this policy.
     fn name(&self) -> &'static str;
     /// Create a filter matching the given keys.
@@ -10,9 +14,19 @@ pub trait FilterPolicy: Clone {
     fn key_may_match(&self, key: &[u8], filter: &[u8]) -> bool;
 }
 
+/// A boxed and refcounted filter policy (reference-counted because a Box with unsized content
+/// could not be cloned otherwise).
+pub type BoxedFilterPolicy = Arc<Box<dyn FilterPolicy>>;
+
 /// Used for tables that don't have filter blocks but need a type parameter.
 #[derive(Clone)]
 pub struct NoFilterPolicy;
+
+impl NoFilterPolicy {
+    pub fn new_wrap() -> BoxedFilterPolicy {
+        Arc::new(Box::new(NoFilterPolicy))
+    }
+}
 
 impl FilterPolicy for NoFilterPolicy {
     fn name(&self) -> &'static str {
@@ -39,7 +53,14 @@ pub struct BloomPolicy {
 
 /// Beware the magic numbers...
 impl BloomPolicy {
-    pub fn new(bits_per_key: u32) -> BloomPolicy {
+    /// Returns a new boxed BloomPolicy.
+    pub fn new_wrap(bits_per_key: u32) -> BoxedFilterPolicy {
+        Arc::new(Box::new(BloomPolicy::new_unwrapped(bits_per_key)))
+    }
+
+    /// Returns a new BloomPolicy with the given parameters.
+
+    fn new_unwrapped(bits_per_key: u32) -> BloomPolicy {
         let mut k = (bits_per_key as f32 * 0.69) as u32;
 
         if k < 1 {
@@ -151,17 +172,17 @@ impl FilterPolicy for BloomPolicy {
 /// A user Key is u8*.
 /// An Internal Key is u8* u8{8} (where the second part encodes a tag and a sequence number).
 #[derive(Clone)]
-pub struct InternalFilterPolicy<FP: FilterPolicy> {
-    internal: FP,
+pub struct InternalFilterPolicy {
+    internal: BoxedFilterPolicy,
 }
 
-impl<FP: FilterPolicy> InternalFilterPolicy<FP> {
-    pub fn new(inner: FP) -> InternalFilterPolicy<FP> {
-        InternalFilterPolicy { internal: inner }
+impl InternalFilterPolicy {
+    pub fn new_wrap(inner: BoxedFilterPolicy) -> BoxedFilterPolicy {
+        Arc::new(Box::new(InternalFilterPolicy { internal: inner }))
     }
 }
 
-impl<FP: FilterPolicy> FilterPolicy for InternalFilterPolicy<FP> {
+impl FilterPolicy for InternalFilterPolicy {
     fn name(&self) -> &'static str {
         self.internal.name()
     }
@@ -200,16 +221,18 @@ mod tests {
         data
     }
 
+    /// Creates a filter using the keys from input_data().
     fn create_filter() -> Vec<u8> {
-        let fpol = BloomPolicy::new(_BITS_PER_KEY);
+        let fpol = BloomPolicy::new_wrap(_BITS_PER_KEY);
         let filter = fpol.create_filter(&input_data());
 
         assert_eq!(filter, vec![194, 148, 129, 140, 192, 196, 132, 164, 8]);
         filter
     }
 
+    /// Creates a filter using the keys from input_data() but converted to InternalKey format.
     fn create_internalkey_filter() -> Vec<u8> {
-        let fpol = InternalFilterPolicy::new(BloomPolicy::new(_BITS_PER_KEY));
+        let fpol = InternalFilterPolicy::new_wrap(BloomPolicy::new_wrap(_BITS_PER_KEY));
         let input: Vec<Vec<u8>> = input_data()
             .into_iter()
             .map(|k| LookupKey::new(k, 123).internal_key().to_vec())
@@ -220,16 +243,16 @@ mod tests {
     }
 
     #[test]
-    fn test_filter() {
+    fn test_filter_bloom() {
         let f = create_filter();
-        let fp = BloomPolicy::new(_BITS_PER_KEY);
+        let fp = BloomPolicy::new_wrap(_BITS_PER_KEY);
 
         for k in input_data().iter() {
             assert!(fp.key_may_match(k, &f));
         }
     }
 
-    // This test verifies that InternalFilterPolicy works correctly.
+    /// This test verifies that InternalFilterPolicy works correctly.
     #[test]
     fn test_filter_internal_keys_identical() {
         let f = create_filter();
@@ -239,13 +262,13 @@ mod tests {
     }
 
     #[test]
-    fn hash_test() {
+    fn test_filter_bloom_hash() {
         let d1 = vec![0x62];
         let d2 = vec![0xc3, 0x97];
         let d3 = vec![0xe2, 0x99, 0xa5];
         let d4 = vec![0xe1, 0x80, 0xb9, 0x32];
 
-        let fp = BloomPolicy::new(_BITS_PER_KEY);
+        let fp = BloomPolicy::new_unwrapped(_BITS_PER_KEY);
 
         assert_eq!(fp.bloom_hash(&d1), 0xef1345c4);
         assert_eq!(fp.bloom_hash(&d2), 0x5b663814);
