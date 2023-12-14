@@ -485,7 +485,7 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn test_table_iterator_fwd() {
+    fn test_table_iterator_fwd_bwd() {
         let (src, size) = build_table();
         let data = build_data();
 
@@ -496,16 +496,37 @@ mod tests {
             BloomPolicy::new(4),
         )
         .unwrap();
-        let iter = table.iter();
+        let mut iter = table.iter();
+        let mut i = 0;
 
-        for (i, (k, v)) in iter.enumerate() {
+        for (k, v) in iter.by_ref() {
             assert_eq!(
                 (data[i].0.as_bytes(), data[i].1.as_bytes()),
                 (k.as_ref(), v.as_ref())
             );
+            i += 1;
         }
 
-        println!("tot len: {}", data.len());
+        assert_eq!(i, data.len());
+        assert!(iter.next().is_none());
+
+        // backwards count
+        let mut j = 0;
+
+        while let Some((k, v)) = iter.prev() {
+            j += 1;
+            assert_eq!(
+                (
+                    data[data.len() - 1 - j].0.as_bytes(),
+                    data[data.len() - 1 - j].1.as_bytes()
+                ),
+                (k.as_ref(), v.as_ref())
+            );
+        }
+
+        // expecting 7 - 1, because the last entry that the iterator stopped on is the last entry
+        // in the table; that is, it needs to go back over 6 entries.
+        assert_eq!(j, 6);
     }
 
     #[test]
