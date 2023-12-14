@@ -294,7 +294,6 @@ impl VersionEdit {
                     }
                 }
             } else {
-                println!("{}", tag);
                 return Err(StatusCode::IOError);
             }
         }
