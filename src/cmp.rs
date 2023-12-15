@@ -8,9 +8,16 @@ use crate::{
 /// Comparator trait, supporting types that can be nested (i.e., add additional functionality on)
 /// top of an inner comparator)
 pub trait Cmp {
+    /// compare to byte strings, bytewise.
     fn cmp(&self, a: &[u8], b: &[u8]) -> Ordering;
+    /// Return the shortest byte string that compares "Greater" to the first argument and "Less" to
+    /// the second one.
     fn find_shortest_sep(&self, a: &[u8], b: &[u8]) -> Vec<u8>;
+    /// Return the shortest byte string that comares "Greater" to the argument.
     fn find_short_succ(&self, a: &[u8]) -> Vec<u8>;
+    /// A unique identifier for a comparator. A comparator warpper (like InternalKeyCmp) nay
+    /// return the id of its inner comparator.
+    fn id(&self) -> &'static str;
 }
 
 /// Lexical comparator.
@@ -20,6 +27,10 @@ pub struct DefaultCmp;
 impl Cmp for DefaultCmp {
     fn cmp(&self, a: &[u8], b: &[u8]) -> Ordering {
         a.cmp(b)
+    }
+
+    fn id(&self) -> &'static str {
+        "leveldb.BytewiseComparator"
     }
 
     fn find_shortest_sep(&self, a: &[u8], b: &[u8]) -> Vec<u8> {
@@ -81,6 +92,10 @@ impl Cmp for InternalKeyCmp {
         }
     }
 
+    fn id(&self) -> &'static str {
+        self.0.id()
+    }
+
     fn find_shortest_sep(&self, a: &[u8], b: &[u8]) -> Vec<u8> {
         let (_, seqa, keya) = key_types::parse_internal_key(a);
         let (_, _, keyb) = key_types::parse_internal_key(b);
@@ -130,6 +145,10 @@ impl Cmp for MemtableKeyCmp {
                 bseq.cmp(&aseq)
             }
         }
+    }
+
+    fn id(&self) -> &'static str {
+        self.0.id()
     }
 
     // The following two impls should not be used (by principle) although they should be correct.

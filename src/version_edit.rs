@@ -101,8 +101,8 @@ impl VersionEdit {
         self.deleted.insert((level, file_num));
     }
 
-    pub fn set_comparator_name(&mut self, name: String) {
-        self.comparator = Some(name)
+    pub fn set_comparator_name(&mut self, name: &str) {
+        self.comparator = Some(name.to_string())
     }
 
     pub fn set_log_num(&mut self, num: u64) {
@@ -336,7 +336,7 @@ mod tests {
     fn test_version_edit_encode_decode() {
         let mut ve = VersionEdit::new();
 
-        ve.set_comparator_name("abcdef".to_string());
+        ve.set_comparator_name("abcdef");
         ve.set_log_num(123);
         ve.set_next_file(456);
         ve.set_prev_log_num(789);
