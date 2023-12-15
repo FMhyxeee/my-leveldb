@@ -498,6 +498,7 @@ pub mod tests {
         }
 
         assert_eq!(iter.next(), None);
+        assert_eq!(iter.prev(), Some(("aby".as_bytes(), "def".as_bytes())));
     }
 
     #[test]
