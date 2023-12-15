@@ -3,13 +3,6 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::io;
 use std::result;
-use std::sync;
-
-// #[cfg(feature = "fs")]
-// use errno;
-
-// TODO: snap unimplement
-// use snap;
 
 /// StatusCode describes various failure modes of database operations.
 #[derive(Clone, Debug, PartialEq)]
@@ -98,30 +91,5 @@ impl From<io::Error> for Status {
         };
 
         Status::new(c, &e.to_string())
-    }
-}
-
-impl<T> From<sync::PoisonError<T>> for Status {
-    fn from(_: sync::PoisonError<T>) -> Status {
-        Status::new(StatusCode::LockError, "lock poisoned")
-    }
-}
-
-// impl From<snap::Error> for Status {
-//     fn from(e: snap::Error) -> Status {
-//         Status {
-//             code: StatusCode::CompressionError,
-//             err: e.to_string(),
-//         }
-//     }
-// }
-
-#[cfg(test)]
-mod tests {
-    use super::{Status, StatusCode};
-    #[test]
-    fn test_status_to_string() {
-        let s = Status::new(StatusCode::InvalidData, "Invalid data!");
-        assert_eq!("InvalidData: Invalid data!", s.to_string());
     }
 }

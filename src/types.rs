@@ -1,10 +1,5 @@
 //! A collection of fundamentail and/or simple types used by other modules
 
-use std::{
-    fmt::{self, Display},
-    io, result,
-};
-
 #[derive(Debug, PartialEq, PartialOrd)]
 pub enum ValueType {
     TypeDeletion = 0,
@@ -15,53 +10,6 @@ pub enum ValueType {
 pub type SequenceNumber = u64;
 
 pub const MAX_SEQUENCE_NUMBER: SequenceNumber = (1 << 56) - 1;
-
-#[derive(Clone, Debug)]
-pub enum Status {
-    OK,
-    NotFound(String),
-    Corruption(String),
-    NotSupported(String),
-    InvalidArgument(String),
-    PermissionDenied(String),
-    IOError(String),
-    Unknown(String),
-}
-
-impl Display for Status {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Status::OK => write!(f, "OK"),
-            Status::NotFound(ref s) => write!(f, "NotFound: {}", s),
-            Status::Corruption(ref s) => write!(f, "Corruption: {}", s),
-            Status::NotSupported(ref s) => write!(f, "NotSupported: {}", s),
-            Status::InvalidArgument(ref s) => write!(f, "InvalidArgument: {}", s),
-            Status::PermissionDenied(ref s) => write!(f, "PermissionDenied: {}", s),
-            Status::IOError(ref s) => write!(f, "IOError: {}", s),
-            Status::Unknown(ref s) => write!(f, "Unknown: {}", s),
-        }
-    }
-}
-
-/// LevelDB's result type
-pub type Result<T> = result::Result<T, Status>;
-
-pub fn from_io_result<T>(e: io::Result<T>) -> Result<T> {
-    match e {
-        Ok(r) => result::Result::Ok(r),
-        Err(e) => {
-            let err = e.to_string();
-
-            match e.kind() {
-                io::ErrorKind::NotFound => Err(Status::NotFound(err)),
-                io::ErrorKind::InvalidData => Err(Status::Corruption(err)),
-                io::ErrorKind::InvalidInput => Err(Status::InvalidArgument(err)),
-                io::ErrorKind::PermissionDenied => Err(Status::PermissionDenied(err)),
-                _ => Err(Status::IOError(err)),
-            }
-        }
-    }
-}
 
 /// Denotes a key range
 pub struct Range<'a> {

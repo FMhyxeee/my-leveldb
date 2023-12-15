@@ -2,12 +2,14 @@ use std::sync::Arc;
 
 use crate::{
     cmp::MemtableKeyCmp,
+    error::Status,
+    error::{Result, StatusCode},
     key_types::{
         build_memtable_key, parse_memtable_key, InternalKey, LookupKey, MemtableKey, UserKey,
     },
     options::Options,
     skipmap::{SkipMap, SkipMapIter},
-    types::{LdbIterator, SequenceNumber, Status, ValueType},
+    types::{LdbIterator, SequenceNumber, ValueType},
 };
 
 /// Provides Insert/Get/Iterate, based on the SkipMap implementation.
@@ -44,7 +46,7 @@ impl MemTable {
             .insert(build_memtable_key(key, value, t, seq), Vec::new())
     }
 
-    pub fn get(&self, key: &LookupKey) -> Result<Vec<u8>, Status> {
+    pub fn get(&self, key: &LookupKey) -> Result<Vec<u8>> {
         let mut iter = self.map.iter();
         iter.seek(key.memtable_key());
 
@@ -57,13 +59,13 @@ impl MemTable {
             // We only care about use key equality here
             if key.user_key() == &foundkey[fkeyoff..fkeyoff + fkeylen] {
                 if tag & 0xff == ValueType::TypeValue as u64 {
-                    return Result::Ok(foundkey[valoff..valoff + vallen].to_vec());
+                    return Ok(foundkey[valoff..valoff + vallen].to_vec());
                 } else {
-                    return Result::Err(Status::NotFound(String::new()));
+                    return Err(Status::new(StatusCode::NotFound, ""));
                 }
             }
         }
-        Result::Err(Status::NotFound("not found".to_string()))
+        Err(Status::new(StatusCode::NotFound, ""))
     }
 
     pub fn iter(&self) -> MemtableIterator {

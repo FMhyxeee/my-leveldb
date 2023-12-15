@@ -6,7 +6,7 @@ use std::{
 use integer_encoding::{VarIntReader, VarIntWriter};
 
 use crate::{
-    error::StatusCode,
+    error::{Status, StatusCode},
     key_types::InternalKey,
     types::{FileMetaData, SequenceNumber},
 };
@@ -44,21 +44,21 @@ fn tag_to_enum(t: u32) -> Option<EditTag> {
     }
 }
 
-fn read_length_prefixed<R: Read>(reader: &mut R) -> Result<Vec<u8>, StatusCode> {
+fn read_length_prefixed<R: Read>(reader: &mut R) -> Result<Vec<u8>, Status> {
     if let Ok(klen) = reader.read_varint() {
         let mut keybuf = Vec::new();
         keybuf.resize(klen, 0);
 
         if let Ok(l) = reader.read(&mut keybuf) {
             if l != klen {
-                return Err(StatusCode::IOError);
+                return Err(Status::new(StatusCode::IOError, "Couldn't read full key"));
             }
             Ok(keybuf)
         } else {
-            Err(StatusCode::IOError)
+            Err(Status::new(StatusCode::IOError, "Couldn't read key"))
         }
     } else {
-        Err(StatusCode::IOError)
+        Err(Status::new(StatusCode::IOError, "Couldn't read key length"))
     }
 }
 
@@ -184,7 +184,7 @@ impl VersionEdit {
         buf
     }
 
-    pub fn decode_from(src: &[u8]) -> Result<VersionEdit, StatusCode> {
+    pub fn decode_from(src: &[u8]) -> Result<VersionEdit, Status> {
         let mut reader = src;
         let mut ve = VersionEdit::new();
 
@@ -196,10 +196,16 @@ impl VersionEdit {
                             if let Ok(c) = String::from_utf8(buf) {
                                 ve.comparator = Some(c);
                             } else {
-                                return Err(StatusCode::Corruption);
+                                return Err(Status::new(
+                                    StatusCode::Corruption,
+                                    "Bad comparator encoding",
+                                ));
                             }
                         } else {
-                            return Err(StatusCode::IOError);
+                            return Err(Status::new(
+                                StatusCode::IOError,
+                                "Couldn't read lognumber",
+                            ));
                         }
                     }
 
@@ -207,7 +213,10 @@ impl VersionEdit {
                         if let Ok(ln) = reader.read_varint() {
                             ve.log_number = Some(ln);
                         } else {
-                            return Err(StatusCode::IOError);
+                            return Err(Status::new(
+                                StatusCode::IOError,
+                                "Couldn't read lognumber",
+                            ));
                         }
                     }
 
@@ -215,7 +224,10 @@ impl VersionEdit {
                         if let Ok(nfn) = reader.read_varint() {
                             ve.next_file_number = Some(nfn);
                         } else {
-                            return Err(StatusCode::IOError);
+                            return Err(Status::new(
+                                StatusCode::IOError,
+                                "Couldn't read next_file_number",
+                            ));
                         }
                     }
 
@@ -223,21 +235,22 @@ impl VersionEdit {
                         if let Ok(ls) = reader.read_varint() {
                             ve.last_seq = Some(ls);
                         } else {
-                            return Err(StatusCode::IOError);
+                            return Err(Status::new(
+                                StatusCode::IOError,
+                                "Couldn't read last_sequence",
+                            ));
                         }
                     }
 
                     EditTag::CompactPointer => {
                         // Monads by indentation...
                         if let Ok(lvl) = reader.read_varint() {
-                            if let Ok(key) = read_length_prefixed(&mut reader) {
-                                ve.compaction_ptrs
-                                    .push(CompactionPointer { level: lvl, key });
-                            } else {
-                                return Err(StatusCode::IOError);
-                            }
+                            let key = read_length_prefixed(&mut reader).unwrap();
+
+                            ve.compaction_ptrs
+                                .push(CompactionPointer { level: lvl, key });
                         } else {
-                            return Err(StatusCode::IOError);
+                            return Err(Status::new(StatusCode::IOError, "Couldn't read level"));
                         }
                     }
 
@@ -246,10 +259,13 @@ impl VersionEdit {
                             if let Ok(num) = reader.read_varint() {
                                 ve.deleted.insert((lvl, num));
                             } else {
-                                return Err(StatusCode::IOError);
+                                return Err(Status::new(
+                                    StatusCode::IOError,
+                                    "Couldn't read file num",
+                                ));
                             }
                         } else {
-                            return Err(StatusCode::IOError);
+                            return Err(Status::new(StatusCode::IOError, "Couldn't read level"));
                         }
                     }
 
@@ -257,31 +273,35 @@ impl VersionEdit {
                         if let Ok(lvl) = reader.read_varint() {
                             if let Ok(num) = reader.read_varint() {
                                 if let Ok(size) = reader.read_varint() {
-                                    if let (Ok(smallest), Ok(largest)) = (
-                                        read_length_prefixed(&mut reader),
-                                        read_length_prefixed(&mut reader),
-                                    ) {
-                                        ve.new_files.push((
-                                            lvl,
-                                            FileMetaData {
-                                                num,
-                                                size,
-                                                smallest,
-                                                largest,
-                                                allowed_seeks: 0,
-                                            },
-                                        ))
-                                    } else {
-                                        return Err(StatusCode::IOError);
-                                    }
+                                    let smallest = read_length_prefixed(&mut reader).unwrap();
+                                    let largest = read_length_prefixed(&mut reader).unwrap();
+                                    ve.new_files.push((
+                                        lvl,
+                                        FileMetaData {
+                                            num,
+                                            size,
+                                            smallest,
+                                            largest,
+                                            allowed_seeks: 0,
+                                        },
+                                    ))
                                 } else {
-                                    return Err(StatusCode::IOError);
+                                    return Err(Status::new(
+                                        StatusCode::IOError,
+                                        "Couldn't read file size",
+                                    ));
                                 }
                             } else {
-                                return Err(StatusCode::IOError);
+                                return Err(Status::new(
+                                    StatusCode::IOError,
+                                    "Couldn't read file num",
+                                ));
                             }
                         } else {
-                            return Err(StatusCode::IOError);
+                            return Err(Status::new(
+                                StatusCode::IOError,
+                                "Couldn't read file level",
+                            ));
                         }
                     }
 
@@ -289,12 +309,15 @@ impl VersionEdit {
                         if let Ok(pln) = reader.read_varint() {
                             ve.prev_log_number = Some(pln);
                         } else {
-                            return Err(StatusCode::IOError);
+                            return Err(Status::new(
+                                StatusCode::IOError,
+                                "Couldn't read prev_log_number",
+                            ));
                         }
                     }
                 }
             } else {
-                return Err(StatusCode::IOError);
+                return Err(Status::new(StatusCode::Corruption, "Invalid tag number"));
             }
         }
 

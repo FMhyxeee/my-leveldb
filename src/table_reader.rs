@@ -2,7 +2,7 @@ use crc::{crc32, Hasher32};
 use integer_encoding::FixedInt;
 use std::{
     cmp::Ordering,
-    io::{self, Read, Result, Seek, SeekFrom},
+    io::{Read, Seek, SeekFrom},
     sync::Arc,
 };
 
@@ -11,6 +11,7 @@ use crate::{
     blockhandle::BlockHandle,
     cache::CacheID,
     cmp::InternalKeyCmp,
+    error::{Result, Status, StatusCode},
     filter::{BoxedFilterPolicy, InternalFilterPolicy},
     filter_block::FilterBlockReader,
     key_types::InternalKey,
@@ -118,8 +119,8 @@ impl<R: Read + Seek> Table<R> {
         let metaindexblock = TableBlock::read_block(opt.clone(), &mut file, &footer.meta_index)?;
 
         if !indexblock.verify() || !metaindexblock.verify() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
+            return Err(Status::new(
+                StatusCode::InvalidData,
                 "Indexblock/Metaindexblock failed verification",
             ));
         }
@@ -169,8 +170,8 @@ impl<R: Read + Seek> Table<R> {
         let b = TableBlock::read_block(self.opt.clone(), &mut self.file, location)?;
 
         if !b.verify() {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidData,
+            Err(Status::new(
+                StatusCode::InvalidData,
                 "Data block failed verification",
             ))
         } else {
