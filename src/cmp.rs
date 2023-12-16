@@ -57,7 +57,12 @@ impl Cmp for DefaultCmp {
             diff_at += 1;
         }
 
-        a.to_vec()
+        // Backup case: either `a` is full of 0xff, or all different places are less than 2
+        // characters apart.
+        // The result is not necessarily short, but a good separator.
+        let mut sep = a.to_vec();
+        sep[a.len() - 1] += 1;
+        sep
     }
 
     fn find_short_succ(&self, a: &[u8]) -> Vec<u8> {
@@ -198,7 +203,7 @@ mod tests {
         );
         assert_eq!(
             DefaultCmp.find_shortest_sep("abc".as_bytes(), "acd".as_bytes()),
-            "abc".as_bytes()
+            "abd".as_bytes()
         );
         assert_eq!(
             DefaultCmp.find_shortest_sep("abcdefghi".as_bytes(), "abcffghi".as_bytes()),
@@ -210,11 +215,15 @@ mod tests {
         );
         assert_eq!(
             DefaultCmp.find_shortest_sep("a".as_bytes(), "b".as_bytes()),
-            "a".as_bytes()
+            "b".as_bytes()
         );
         assert_eq!(
             DefaultCmp.find_shortest_sep("abc".as_bytes(), "zzz".as_bytes()),
             "b".as_bytes()
+        );
+        assert_eq!(
+            DefaultCmp.find_shortest_sep("yyy".as_bytes(), "z".as_bytes()),
+            "yyz".as_bytes()
         );
         assert_eq!(
             DefaultCmp.find_shortest_sep("".as_bytes(), "".as_bytes()),
@@ -261,7 +270,7 @@ mod tests {
                 LookupKey::new("abc".as_bytes(), 1).internal_key(),
                 LookupKey::new("acd".as_bytes(), 2).internal_key()
             ),
-            LookupKey::new("abc".as_bytes(), 1).internal_key()
+            LookupKey::new("abd".as_bytes(), 1).internal_key()
         );
         assert_eq!(
             cmp.find_shortest_sep(
