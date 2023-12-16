@@ -93,3 +93,19 @@ impl From<io::Error> for Status {
         Status::new(c, &e.to_string())
     }
 }
+
+pub fn from_io_result<T>(e: io::Result<T>) -> Result<T> {
+    match e {
+        Ok(r) => result::Result::Ok(r),
+        Err(e) => Err(Status::from(e)),
+    }
+}
+
+use std::sync;
+
+pub fn from_lock_result<T>(e: sync::LockResult<T>) -> Result<T> {
+    match e {
+        Ok(r) => result::Result::Ok(r),
+        Err(_) => result::Result::Err(Status::new(StatusCode::LockError, "lock is poisoned")),
+    }
+}

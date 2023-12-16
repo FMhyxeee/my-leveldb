@@ -1,10 +1,11 @@
 //! An `env` is an abstraction layer that allows the database to run both on different platforms as
 //! well as persisting data on disk or in memory.
 
-use crate::error::Result;
+use crate::error::{from_io_result, from_lock_result, Result};
 
-use std::fs::File;
-use std::io::prelude::*;
+use std::io::{self, prelude::*};
+use std::sync::Mutex;
+use std::{fs::File, sync::Arc};
 
 #[cfg(unix)]
 use std::os::unix::fs::FileExt;
@@ -32,6 +33,29 @@ impl RandomAccess for File {
 
 pub struct FileLock {
     pub id: String,
+}
+
+/// RandomAccessFile wraps a type implementing read and seek to enable atomic random reads
+#[derive(Clone)]
+pub struct RandomAccessFile<F: Read + Seek> {
+    f: Arc<Mutex<F>>,
+}
+
+impl<F: Read + Seek> RandomAccessFile<F> {
+    pub fn new(f: F) -> RandomAccessFile<F> {
+        RandomAccessFile {
+            f: Arc::new(Mutex::new(f)),
+        }
+    }
+
+    pub fn read_at(&self, off: usize, len: usize) -> Result<Vec<u8>> {
+        let mut f = from_lock_result(self.f.lock())?;
+        let _ = from_io_result(f.seek(io::SeekFrom::Start(off as u64)));
+
+        let mut buf = Vec::new();
+        buf.resize(len, 0);
+        from_io_result(f.read_exact(&mut buf)).map(|_| buf)
+    }
 }
 
 pub trait Env {
