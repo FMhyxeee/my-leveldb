@@ -188,6 +188,8 @@ impl<T> Cache<T> {
         }
     }
 
+    /// Returns an ID that is unique for this cache and that can be used to partition the cache
+    /// among several users.
     pub fn new_cache_id(&mut self) -> CacheID {
         self.id += 1;
         CacheID(self.id)
