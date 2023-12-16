@@ -151,6 +151,8 @@ impl<T> LRUList<T> {
 }
 
 pub type CacheKey = Vec<u8>;
+
+#[derive(Clone)]
 pub struct CacheID(u64);
 type CacheEntry<T> = (T, LRUHandle<CacheKey>);
 

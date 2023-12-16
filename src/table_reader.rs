@@ -93,6 +93,7 @@ impl TableBlock {
     }
 }
 
+#[derive(Clone)]
 pub struct Table<R: Read + Seek> {
     file: R,
     file_size: usize,
@@ -209,11 +210,41 @@ impl<R: Read + Seek> Table<R> {
     /// you frequently look for non-existing values (as it will detect the non-existence of an
     /// entry in a block without having to load the block).
     pub fn get(&mut self, to: InternalKey) -> Option<Vec<u8>> {
-        let mut iter = self.iter();
+        let mut index_iter = self.indexblock.iter();
+        index_iter.seek(to);
 
+        let handle;
+        if let Some((last_in_block, h)) = index_iter.current() {
+            if self.opt.cmp.cmp(to, &last_in_block) == Ordering::Less {
+                handle = BlockHandle::decode(&h).0;
+            } else {
+                return None;
+            }
+        } else {
+            return None;
+        }
+
+        // found correct block.
+
+        // Check bloom (or whatever) filter
+        if let Some(ref filters) = self.filters {
+            if !filters.key_may_match(handle.offset(), to) {
+                return None;
+            }
+        }
+
+        // Read block (potentially from cache)
+        let mut iter;
+        if let Ok(tb) = self.read_block(&handle) {
+            iter = tb.block.iter();
+        } else {
+            return None;
+        }
+
+        // Go to entry and check if it's the wanted entry.
         iter.seek(to);
         if let Some((k, v)) = iter.current() {
-            if k == to {
+            if self.opt.cmp.cmp(to, &k) == Ordering::Equal {
                 Some(v)
             } else {
                 None
@@ -221,29 +252,6 @@ impl<R: Read + Seek> Table<R> {
         } else {
             None
         }
-
-        // Future impl:
-        //
-        // let mut index_block = self.indexblock.iter();
-        //
-        // index_block.seek(to);
-        //
-        // if let Some((past_block, handle)) = index_block.current() {
-        // if cmp(to, &past_block) == Ordering::Less {
-        // ok, found right block: continue
-        // if let Ok(()) = self.load_block(&handle) {
-        // self.current_block.seek(to);
-        // } else {
-        // return None;
-        // }*/
-        // return None;
-        // } else {
-        // return None;
-        // }
-        // } else {
-        // return None;
-        // }
-        //
     }
 }
 
@@ -559,6 +567,8 @@ mod tests {
             BloomPolicy::new_wrap(4),
         )
         .unwrap();
+
+        assert!(table.filters.is_some());
         let filter_reader = table.filters.clone().unwrap();
         let mut iter = table.iter();
 
@@ -686,13 +696,22 @@ mod tests {
             BloomPolicy::new_wrap(4),
         )
         .unwrap();
+        let mut table2 = table.clone();
+
+        // Test that all of the table's entries are reachable via get()
+        for (k, v) in table.iter() {
+            assert_eq!(table2.get(&k), Some(v));
+        }
+
+        assert_eq!(table.opt.block_cache.lock().unwrap().count(), 3);
 
         assert!(table.get("aaa".as_bytes()).is_none());
-        assert_eq!(table.get("abc".as_bytes()), Some("def".as_bytes().to_vec()));
+        assert!(table.get("aaaa".as_bytes()).is_none());
+        assert!(table.get("aa".as_bytes()).is_none());
         assert!(table.get("abcd".as_bytes()).is_none());
-        assert_eq!(table.get("bcd".as_bytes()), Some("asa".as_bytes().to_vec()));
-        assert_eq!(table.get("zzz".as_bytes()), Some("111".as_bytes().to_vec()));
+        assert!(table.get("zzy".as_bytes()).is_none());
         assert!(table.get("zz1".as_bytes()).is_none());
+        assert!(table.get("zz{".as_bytes()).is_none());
     }
 
     /// This test verifies that the tbale and filters work with internal keys. This means:
