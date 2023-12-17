@@ -4,6 +4,9 @@ use crate::{
     block::Block,
     cache::Cache,
     cmp::{Cmp, DefaultCmp},
+    disk_env::PosixDiskEnv,
+    env::Env,
+    filter::{BloomPolicy, BoxedFilterPolicy},
     types::SequenceNumber,
 };
 
@@ -13,6 +16,7 @@ const MB: usize = 1 << 20;
 const BLOCK_MAX_SIZE: usize = 4 * KB;
 const BLOCK_CACHE_CAPACITY: usize = 8 * MB;
 const WRITE_BUFFER_SIZE: usize = 4 * MB;
+const DEFAULT_BITS_PER_KEY: u32 = 10; // NOTE: This may need to be optimized.
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum CompressionType {
@@ -33,6 +37,7 @@ pub fn int_to_compressiontype(i: u32) -> Option<CompressionType> {
 #[derive(Clone)]
 pub struct Options {
     pub cmp: Arc<Box<dyn Cmp>>,
+    pub env: Arc<Box<dyn Env>>,
     pub create_if_missing: bool,
     pub error_if_exists: bool,
     pub paranoid_checks: bool,
@@ -44,12 +49,14 @@ pub struct Options {
     pub block_restart_interval: usize,
     pub compression_type: CompressionType,
     pub reuse_logs: bool,
+    pub filter_policy: BoxedFilterPolicy,
 }
 
 impl Default for Options {
     fn default() -> Self {
         Self {
             cmp: Arc::new(Box::new(DefaultCmp)),
+            env: Arc::new(Box::new(PosixDiskEnv::new())),
             create_if_missing: true,
             error_if_exists: false,
             paranoid_checks: false,
@@ -63,6 +70,7 @@ impl Default for Options {
             block_restart_interval: 16,
             reuse_logs: false,
             compression_type: CompressionType::CompressionNone,
+            filter_policy: BloomPolicy::new_wrap(DEFAULT_BITS_PER_KEY),
         }
     }
 }
