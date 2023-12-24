@@ -6,7 +6,7 @@ use crate::{
     block::{BlockBuilder, BlockContents},
     blockhandle::BlockHandle,
     cmp::InternalKeyCmp,
-    filter::{BoxedFilterPolicy, NoFilterPolicy},
+    filter::{InternalFilterPolicy, NoFilterPolicy},
     filter_block::FilterBlockBuilder,
     key_types::InternalKey,
     options::{CompressionType, Options},
@@ -87,25 +87,26 @@ pub struct TableBuilder<'a, Dst: Write> {
 }
 
 impl<'a, Dst: Write> TableBuilder<'a, Dst> {
-    pub fn new_no_filter(opt: Options, dst: Dst) -> TableBuilder<'a, Dst> {
-        TableBuilder::new(opt, dst, NoFilterPolicy::new_wrap())
+    pub fn new_no_filter(mut opt: Options, dst: Dst) -> TableBuilder<'a, Dst> {
+        opt.filter_policy = NoFilterPolicy::new_wrap();
+        TableBuilder::new(opt, dst)
     }
 }
 
 /// TableBuilder is used for building a new SSTable, It groups entries into blocks,
 /// calculating checksums and bloom filter.
-/// It's recommended that you use InternalFilterPolicy as FilterPol, as that policy extracts the
-/// underlying user keys from the InternalKeys used as keys in the table.
 impl<'a, Dst: Write> TableBuilder<'a, Dst> {
     /// Create a new table builder.
-    /// The comparator in opt will be wrapped in a InternalKeyCmp.
-    pub fn new(mut opt: Options, dst: Dst, fpol: BoxedFilterPolicy) -> TableBuilder<'a, Dst> {
+    /// The comparator in opt will be wrapped in a InternalKeyCmp, and the filter policy
+    /// in an InternalFilterPolicy.
+    pub fn new(mut opt: Options, dst: Dst) -> TableBuilder<'a, Dst> {
         opt.cmp = Arc::new(Box::new(InternalKeyCmp(opt.cmp.clone())));
-        TableBuilder::new_raw(opt, dst, fpol)
+        opt.filter_policy = InternalFilterPolicy::new_wrap(opt.filter_policy);
+        TableBuilder::new_raw(opt, dst)
     }
 
     /// Like new(), but doesn't wrap the comparator in an InternalKeyCmp (for testing)
-    pub fn new_raw(opt: Options, dst: Dst, fpol: BoxedFilterPolicy) -> TableBuilder<'a, Dst> {
+    pub fn new_raw(opt: Options, dst: Dst) -> TableBuilder<'a, Dst> {
         TableBuilder {
             opt: opt.clone(),
             dst,
@@ -113,8 +114,8 @@ impl<'a, Dst: Write> TableBuilder<'a, Dst> {
             prev_block_last_key: vec![],
             num_entries: 0,
             data_block: Some(BlockBuilder::new(opt.clone())),
+            filter_block: Some(FilterBlockBuilder::new(opt.filter_policy.clone())),
             index_block: Some(BlockBuilder::new(opt)),
-            filter_block: Some(FilterBlockBuilder::new(fpol)),
         }
     }
 
@@ -246,7 +247,6 @@ mod tests {
 
     use crate::{
         blockhandle::BlockHandle,
-        filter::BloomPolicy,
         options::Options,
         table_builder::{Footer, TableBuilder},
     };
@@ -272,7 +272,7 @@ mod tests {
             block_restart_interval: 3,
             ..Default::default()
         };
-        let mut b = TableBuilder::new_raw(opt, &mut d, BloomPolicy::new_wrap(4));
+        let mut b = TableBuilder::new_raw(opt, &mut d);
 
         let data = vec![
             ("abc", "def"),
@@ -297,7 +297,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut b = TableBuilder::new_raw(opt, &mut d, BloomPolicy::new_wrap(4));
+        let mut b = TableBuilder::new_raw(opt, &mut d);
 
         // Test Two equal consecution keys
         let data = vec![

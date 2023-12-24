@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{self, ErrorKind, Read, Write};
 use std::iter::FromIterator;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 type FileDescriptor = i32;
@@ -78,17 +78,17 @@ impl Env for PosixDiskEnv {
     fn exists(&self, p: &Path) -> Result<bool> {
         Ok(p.exists())
     }
-    fn children(&self, p: &Path) -> Result<Vec<PathBuf>> {
-        let dir_reader = fs::read_dir(p).map_err(|e| map_err_with_name("children", p, e))?;
+    fn children(&self, p: &Path) -> Result<Vec<String>> {
+        let dir_reader = fs::read_dir(p).unwrap();
         let filenames = dir_reader
-            .map(|r| match r {
-                Ok(_) => {
-                    let direntry = r.unwrap();
-                    Path::new(&direntry.file_name()).to_owned()
+            .map(|r| {
+                if let Ok(direntry) = r {
+                    direntry.file_name().into_string().unwrap_or("".to_string())
+                } else {
+                    "".to_string()
                 }
-                Err(_) => Path::new("").to_owned(),
             })
-            .filter(|s| !s.as_os_str().is_empty());
+            .filter(|s: &String| !s.is_empty());
         Ok(Vec::from_iter(filenames))
     }
     fn size_of(&self, p: &Path) -> Result<usize> {

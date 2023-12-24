@@ -1,19 +1,15 @@
 use crc::{crc32, Hasher32};
 use integer_encoding::FixedInt;
-use std::{
-    cmp::Ordering,
-    io::{Read, Seek},
-    sync::Arc,
-};
+use std::{cmp::Ordering, sync::Arc};
 
 use crate::{
     block::{Block, BlockIter},
     blockhandle::BlockHandle,
     cache::CacheID,
     cmp::InternalKeyCmp,
-    env::RandomAccessFile,
+    env::{RandomAccess, RandomAccessFile},
     error::{Result, Status, StatusCode},
-    filter::{BoxedFilterPolicy, InternalFilterPolicy},
+    filter::InternalFilterPolicy,
     filter_block::FilterBlockReader,
     key_types::InternalKey,
     options::{self, CompressionType, Options},
@@ -22,7 +18,7 @@ use crate::{
 };
 
 /// Reads the table footer.
-fn read_footer<F: Read + Seek>(f: &RandomAccessFile<F>, size: usize) -> Result<Footer> {
+fn read_footer(f: &RandomAccessFile, size: usize) -> Result<Footer> {
     let buf = f.read_at(
         size - table_builder::FULL_FOOTER_LENGTH,
         table_builder::FULL_FOOTER_LENGTH,
@@ -30,7 +26,7 @@ fn read_footer<F: Read + Seek>(f: &RandomAccessFile<F>, size: usize) -> Result<F
     Ok(Footer::decode(&buf))
 }
 
-fn read_bytes<F: Read + Seek>(f: &RandomAccessFile<F>, location: &BlockHandle) -> Result<Vec<u8>> {
+fn read_bytes(f: &RandomAccessFile, location: &BlockHandle) -> Result<Vec<u8>> {
     f.read_at(location.offset(), location.size())
 }
 
@@ -42,9 +38,9 @@ struct TableBlock {
 
 impl TableBlock {
     /// Reads a block at location.
-    fn read_block<R: Read + Seek>(
+    fn read_block(
         opt: Options,
-        f: &RandomAccessFile<R>,
+        f: &RandomAccessFile,
         location: &BlockHandle,
     ) -> Result<TableBlock> {
         // The block is denoted by offset and length in BlockHandle. A block in an encoded
@@ -87,8 +83,8 @@ impl TableBlock {
 }
 
 #[derive(Clone)]
-pub struct Table<R: Read + Seek> {
-    file: RandomAccessFile<R>,
+pub struct Table {
+    file: RandomAccessFile,
     file_size: usize,
     cache_id: CacheID,
 
@@ -99,14 +95,9 @@ pub struct Table<R: Read + Seek> {
     filters: Option<FilterBlockReader>,
 }
 
-impl<R: Read + Seek> Table<R> {
+impl Table {
     /// Creates a new table reader operating on unformatted keys(i.e., UserKeys).
-    pub fn new_raw(
-        opt: Options,
-        file: RandomAccessFile<R>,
-        size: usize,
-        fp: BoxedFilterPolicy,
-    ) -> Result<Table<R>> {
+    pub fn new_raw(opt: Options, file: RandomAccessFile, size: usize) -> Result<Table> {
         let footer = read_footer(&file, size).unwrap();
 
         let indexblock = TableBlock::read_block(opt.clone(), &file, &footer.index)?;
@@ -121,7 +112,9 @@ impl<R: Read + Seek> Table<R> {
 
         // Open filter block for reading
         let mut filter_block_reader = None;
-        let filter_name = format!("filter.{}", fp.name()).as_bytes().to_vec();
+        let filter_name = format!("filter.{}", opt.filter_policy.name())
+            .as_bytes()
+            .to_vec();
 
         let mut metaindexiter = metaindexblock.block.iter();
 
@@ -132,7 +125,8 @@ impl<R: Read + Seek> Table<R> {
 
             if filter_block_location.size() > 0 {
                 let buf = read_bytes(&file, &filter_block_location)?;
-                filter_block_reader = Some(FilterBlockReader::new_owned(fp, buf));
+                filter_block_reader =
+                    Some(FilterBlockReader::new_owned(opt.filter_policy.clone(), buf));
             }
         }
 
@@ -154,14 +148,10 @@ impl<R: Read + Seek> Table<R> {
     /// Creates a new table reader operating on internal keys (i.e., InternalKey). This means that
     /// a different comparator (internal_key_cmp) and a different filter policy
     /// (InternalFilterPolicy) are used.
-    pub fn new(mut opt: Options, file: R, size: usize, fp: BoxedFilterPolicy) -> Result<Table<R>> {
+    pub fn new(mut opt: Options, file: Box<dyn RandomAccess>, size: usize) -> Result<Table> {
         opt.cmp = Arc::new(Box::new(InternalKeyCmp(opt.cmp.clone())));
-        let t = Table::new_raw(
-            opt,
-            RandomAccessFile::new(file),
-            size,
-            InternalFilterPolicy::new_wrap(fp),
-        )?;
+        opt.filter_policy = InternalFilterPolicy::new_wrap(opt.filter_policy);
+        let t = Table::new_raw(opt, RandomAccessFile::new(file), size)?;
         Ok(t)
     }
 
@@ -193,7 +183,7 @@ impl<R: Read + Seek> Table<R> {
     }
 
     // Iterators read from the file; thus only one iterator can be borrowed (mutably) per scope
-    fn iter(&mut self) -> TableIterator<R> {
+    fn iter(&mut self) -> TableIterator {
         TableIterator {
             current_block: self.indexblock.iter(), // just for filling in here
             current_block_off: 0,
@@ -255,8 +245,8 @@ impl<R: Read + Seek> Table<R> {
 
 /// This iterator is a "TwoLevelIterator"; it uses an index block in order to get an offset hint
 /// into the data blocks.
-pub struct TableIterator<'a, R: 'a + Read + Seek> {
-    table: &'a mut Table<R>,
+pub struct TableIterator<'a> {
+    table: &'a mut Table,
     opt: Options,
     current_block: BlockIter,
     current_block_off: usize,
@@ -265,7 +255,7 @@ pub struct TableIterator<'a, R: 'a + Read + Seek> {
     init: bool,
 }
 
-impl<'a, R: Read + Seek> TableIterator<'a, R> {
+impl<'a> TableIterator<'a> {
     // Skips to the entry referenced by the next index block.
     // This is called once a block has run out of entries.
     fn skip_to_next_entry(&mut self) -> Result<bool> {
@@ -285,7 +275,7 @@ impl<'a, R: Read + Seek> TableIterator<'a, R> {
     }
 }
 
-impl<'a, R: Read + Seek> Iterator for TableIterator<'a, R> {
+impl<'a> Iterator for TableIterator<'a> {
     type Item = (Vec<u8>, Vec<u8>);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -317,7 +307,7 @@ impl<'a, R: Read + Seek> Iterator for TableIterator<'a, R> {
     }
 }
 
-impl<'a, R: Read + Seek> LdbIterator for TableIterator<'a, R> {
+impl<'a> LdbIterator for TableIterator<'a> {
     // A call to valid() after seeking is necessary to ensure that the seek worked (e.g., no error
     // while reading from disk)
     fn seek(&mut self, to: &[u8]) {
@@ -415,7 +405,7 @@ mod tests {
 
         {
             // Uses the standard comparator in opt.
-            let mut b = TableBuilder::new(opt, &mut d, BloomPolicy::new_wrap(4));
+            let mut b = TableBuilder::new(opt, &mut d);
             let data = build_data();
 
             for &(k, v) in data.iter() {
@@ -437,6 +427,7 @@ mod tests {
         let opt = Options {
             block_restart_interval: 2,
             block_size: 32,
+            filter_policy: BloomPolicy::new_wrap(4),
             ..Default::default()
         };
 
@@ -451,11 +442,7 @@ mod tests {
 
         {
             // Uses InternalKeyCmp
-            let mut b = TableBuilder::new(
-                opt,
-                &mut d,
-                InternalFilterPolicy::new_wrap(BloomPolicy::new_wrap(4)),
-            );
+            let mut b = TableBuilder::new(opt, &mut d);
 
             for (k, v) in data.iter() {
                 b.add(k.as_slice(), v.as_bytes());
@@ -469,8 +456,8 @@ mod tests {
         (d, size)
     }
 
-    fn wrap_buffer(src: &[u8]) -> RandomAccessFile<Cursor<&[u8]>> {
-        RandomAccessFile::new(Cursor::new(src))
+    fn wrap_buffer(src: Vec<u8>) -> RandomAccessFile {
+        RandomAccessFile::new(Box::new(Cursor::new(src)))
     }
 
     #[test]
@@ -482,13 +469,8 @@ mod tests {
             ..Default::default()
         };
 
-        let mut table = Table::new_raw(
-            opt.clone(),
-            wrap_buffer(&src),
-            size,
-            BloomPolicy::new_wrap(4),
-        )
-        .unwrap();
+        let mut table = Table::new_raw(opt.clone(), wrap_buffer(src), size).unwrap();
+
         let mut iter = table.iter();
 
         // index/metaindex blocks are not cached. That'd be a waste of memory.
@@ -509,13 +491,8 @@ mod tests {
         let (src, size) = build_table();
         let data = build_data();
 
-        let mut table = Table::new_raw(
-            Options::default(),
-            wrap_buffer(&src),
-            size,
-            BloomPolicy::new_wrap(4),
-        )
-        .unwrap();
+        let mut table = Table::new_raw(Options::default(), wrap_buffer(src), size).unwrap();
+
         let mut iter = table.iter();
         let mut i = 0;
 
@@ -554,13 +531,8 @@ mod tests {
     fn test_table_iterator_filter() {
         let (src, size) = build_table();
 
-        let mut table = Table::new_raw(
-            Options::default(),
-            wrap_buffer(&src),
-            size,
-            BloomPolicy::new_wrap(4),
-        )
-        .unwrap();
+        let mut table = Table::new_raw(Options::default(), wrap_buffer(src), size).unwrap();
+
         assert!(table.filters.is_some());
         let filter_reader = table.filters.clone().unwrap();
         let mut iter = table.iter();
@@ -578,13 +550,8 @@ mod tests {
     fn test_table_iterator_state_behavior() {
         let (src, size) = build_table();
 
-        let mut table = Table::new_raw(
-            Options::default(),
-            wrap_buffer(&src),
-            size,
-            BloomPolicy::new_wrap(4),
-        )
-        .unwrap();
+        let mut table = Table::new_raw(Options::default(), wrap_buffer(src), size).unwrap();
+
         let mut iter = table.iter();
 
         // behavior test
@@ -615,13 +582,8 @@ mod tests {
         let (src, size) = build_table();
         let data = build_data();
 
-        let mut table = Table::new_raw(
-            Options::default(),
-            wrap_buffer(&src),
-            size,
-            BloomPolicy::new_wrap(4),
-        )
-        .unwrap();
+        let mut table = Table::new_raw(Options::default(), wrap_buffer(src), size).unwrap();
+
         let mut iter = table.iter();
         let mut i = 0;
 
@@ -657,13 +619,8 @@ mod tests {
     fn test_table_iterator_seek() {
         let (src, size) = build_table();
 
-        let mut table = Table::new_raw(
-            Options::default(),
-            wrap_buffer(&src),
-            size,
-            BloomPolicy::new_wrap(4),
-        )
-        .unwrap();
+        let mut table = Table::new_raw(Options::default(), wrap_buffer(src), size).unwrap();
+
         let mut iter = table.iter();
 
         iter.seek("bcd".as_bytes());
@@ -685,13 +642,8 @@ mod tests {
     fn test_table_get() {
         let (src, size) = build_table();
 
-        let mut table = Table::new_raw(
-            Options::default(),
-            wrap_buffer(&src),
-            size,
-            BloomPolicy::new_wrap(4),
-        )
-        .unwrap();
+        let mut table = Table::new_raw(Options::default(), wrap_buffer(src), size).unwrap();
+
         let mut table2 = table.clone();
 
         // Test that all of the table's entries are reachable via get()
@@ -720,13 +672,8 @@ mod tests {
     fn test_table_internal_keys() {
         let (src, size) = build_internal_table();
 
-        let mut table = Table::new(
-            Options::default(),
-            Cursor::new(&src as &[u8]),
-            size,
-            BloomPolicy::new_wrap(4),
-        )
-        .unwrap();
+        let mut table = Table::new(Options::default(), Box::new(Cursor::new(src)), size).unwrap();
+
         let filter_reader = table.filters.clone().unwrap();
 
         // Check that we're actually using internal keys
@@ -755,13 +702,7 @@ mod tests {
 
         src[10] += 1;
 
-        let mut table = Table::new_raw(
-            Options::default(),
-            wrap_buffer(&src),
-            size,
-            BloomPolicy::new_wrap(4),
-        )
-        .unwrap();
+        let mut table = Table::new_raw(Options::default(), wrap_buffer(src), size).unwrap();
 
         assert!(table.filters.is_some());
         assert_eq!(table.filters.as_ref().unwrap().num(), 1);

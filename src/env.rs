@@ -3,59 +3,41 @@
 
 use crate::error::{from_io_result, from_lock_result, Result};
 
-use std::io::{self, prelude::*};
+use std::io::{self, prelude::*, Cursor};
+use std::path::Path;
 use std::sync::Mutex;
 use std::{fs::File, sync::Arc};
 
-#[cfg(unix)]
-use std::os::unix::fs::FileExt;
-#[cfg(windows)]
-use std::os::windows::fs::FileExt;
-use std::path::{Path, PathBuf};
+pub trait RandomAccess: Read + Seek {}
+impl RandomAccess for File {}
+impl<T: AsRef<[u8]>> RandomAccess for Cursor<T> {}
 
-pub trait RandomAccess {
-    fn read_at(&self, off: usize, dst: &mut [u8]) -> Result<usize>;
-}
-
-#[cfg(unix)]
-impl RandomAccess for File {
-    fn read_at(&self, off: usize, dst: &mut [u8]) -> Result<usize> {
-        Ok((self as &dyn FileExt).read_at(dst, off as u64)?)
-    }
-}
-
-#[cfg(windows)]
-impl RandomAccess for File {
-    fn read_at(&self, off: usize, dst: &mut [u8]) -> Result<usize> {
-        Ok((self as &dyn FileExt).seek_read(dst, off as u64)?)
-    }
-}
-
-pub struct FileLock {
-    pub id: String,
-}
-
-/// RandomAccessFile wraps a type implementing read and seek to enable atomic random reads
+/// RandomAccessFile dynamically wraps a type implementing read and seek to enable atomic random
+/// reads.
 #[derive(Clone)]
-pub struct RandomAccessFile<F: Read + Seek> {
-    f: Arc<Mutex<F>>,
+pub struct RandomAccessFile {
+    f: Arc<Mutex<Box<dyn RandomAccess>>>,
 }
 
-impl<F: Read + Seek> RandomAccessFile<F> {
-    pub fn new(f: F) -> RandomAccessFile<F> {
+impl RandomAccessFile {
+    pub fn new(f: Box<dyn RandomAccess>) -> RandomAccessFile {
         RandomAccessFile {
             f: Arc::new(Mutex::new(f)),
         }
     }
 
     pub fn read_at(&self, off: usize, len: usize) -> Result<Vec<u8>> {
-        let mut f = from_lock_result(self.f.lock())?;
-        let _ = from_io_result(f.seek(io::SeekFrom::Start(off as u64)));
+        let mut f = from_lock_result(self.f.lock()).unwrap();
+        from_io_result(f.seek(io::SeekFrom::Start(off as u64))).unwrap();
 
         let mut buf = Vec::new();
         buf.resize(len, 0);
         from_io_result(f.read_exact(&mut buf)).map(|_| buf)
     }
+}
+
+pub struct FileLock {
+    pub id: String,
 }
 
 pub trait Env {
@@ -65,7 +47,7 @@ pub trait Env {
     fn open_appendable_file(&self, _: &Path) -> Result<Box<dyn Write>>;
 
     fn exists(&self, _: &Path) -> Result<bool>;
-    fn children(&self, _: &Path) -> Result<Vec<PathBuf>>;
+    fn children(&self, _: &Path) -> Result<Vec<String>>;
     fn size_of(&self, _: &Path) -> Result<usize>;
 
     fn delete(&self, _: &Path) -> Result<()>;
