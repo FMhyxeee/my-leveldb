@@ -96,7 +96,7 @@ pub struct ReadOptions {
 impl Default for ReadOptions {
     fn default() -> Self {
         Self {
-            verify_checksums: false,
+            verify_checksums: true,
             fill_cache: true,
             snapshot: None,
         }
