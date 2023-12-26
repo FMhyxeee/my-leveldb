@@ -1,38 +1,31 @@
 //! An `env` is an abstraction layer that allows the database to run both on different platforms as
 //! well as persisting data on disk or in memory.
 
-use crate::error::{from_io_result, from_lock_result, Result};
+use crate::error::{from_io_result, Result};
 
-use std::io::{self, prelude::*, Cursor};
+use std::fs::File;
+use std::io::{Read, Write};
 use std::path::Path;
-use std::sync::Mutex;
-use std::{fs::File, sync::Arc};
 
-pub trait RandomAccess: Read + Seek {}
-impl RandomAccess for File {}
-impl<T: AsRef<[u8]>> RandomAccess for Cursor<T> {}
+#[cfg(unix)]
+use std::os::unix::fs::FileExt;
+#[cfg(windows)]
+use std::os::windows::fs::FileExt;
 
-/// RandomAccessFile dynamically wraps a type implementing read and seek to enable atomic random
-/// reads.
-#[derive(Clone)]
-pub struct RandomAccessFile {
-    f: Arc<Mutex<Box<dyn RandomAccess>>>,
+pub trait RandomAccess {
+    fn read_at(&self, off: usize, dst: &mut [u8]) -> Result<usize>;
 }
 
-impl RandomAccessFile {
-    pub fn new(f: Box<dyn RandomAccess>) -> RandomAccessFile {
-        RandomAccessFile {
-            f: Arc::new(Mutex::new(f)),
-        }
+#[cfg(unix)]
+impl RandomAccess for File {
+    fn read_at(&self, off: usize, dst: &mut [u8]) -> Result<usize> {
+        Ok((self as &dyn FileExt).read_at(dst, off as u64)?)
     }
+}
 
-    pub fn read_at(&self, off: usize, len: usize) -> Result<Vec<u8>> {
-        let mut f = from_lock_result(self.f.lock()).unwrap();
-        from_io_result(f.seek(io::SeekFrom::Start(off as u64))).unwrap();
-
-        let mut buf = Vec::new();
-        buf.resize(len, 0);
-        from_io_result(f.read_exact(&mut buf)).map(|_| buf)
+impl RandomAccess for File {
+    fn read_at(&self, off: usize, dst: &mut [u8]) -> Result<usize> {
+        from_io_result((self as &dyn FileExt).seek_read(dst, off as u64))
     }
 }
 

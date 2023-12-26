@@ -81,12 +81,19 @@ impl Options {
     /// DO NOT set the comparator after having written any record with a different comparator.
     /// If the comparator used differs from the one used when writing a database that is being
     /// opened, the library is free to panic.
-    pub fn set_comparator<C: Cmp>(&mut self, c: Box<dyn Cmp>) {
+    pub fn set_comparator(&mut self, c: Box<dyn Cmp>) {
         self.cmp = Arc::new(c);
+    }
+
+    /// Supplied to DB read operations
+    /// Deprecated: Will soon be removed to reduce complexity.
+    pub fn set_env(&mut self, e: Box<dyn Env>) {
+        self.env = Arc::new(e);
     }
 }
 
 /// Supplied to DB read operations
+/// Deprecated: Will soon be removed to reduce complexity.
 pub struct ReadOptions {
     pub verify_checksums: bool,
     pub fill_cache: bool,
