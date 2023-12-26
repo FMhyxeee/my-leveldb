@@ -87,6 +87,7 @@ impl Options {
 }
 
 /// Supplied to DB read operations
+/// Deprecated: Will soon be removed to reduce complexity.
 pub struct ReadOptions {
     pub verify_checksums: bool,
     pub fill_cache: bool,
@@ -96,7 +97,7 @@ pub struct ReadOptions {
 impl Default for ReadOptions {
     fn default() -> Self {
         Self {
-            verify_checksums: false,
+            verify_checksums: true,
             fill_cache: true,
             snapshot: None,
         }

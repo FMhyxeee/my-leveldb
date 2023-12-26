@@ -165,6 +165,13 @@ impl CacheID {
     }
 }
 
+// implement the CacheID to u64
+impl From<CacheID> for u64 {
+    fn from(id: CacheID) -> u64 {
+        id.0
+    }
+}
+
 /// Implementation of `SharedLRUCache`.
 /// Based on a HashMap; the elements are linked in order to support the LRU ordering.
 pub struct Cache<T> {
