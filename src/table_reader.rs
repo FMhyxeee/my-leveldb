@@ -104,10 +104,8 @@
 //         let metaindexblock = TableBlock::read_block(opt.clone(), rfile, &footer.meta_index)?;
 
 //         if !indexblock.verify() || !metaindexblock.verify() {
-//             return Err(Status::new(
-//                 StatusCode::InvalidData,
-//                 "Indexblock/Metaindexblock failed verification",
-//             ));
+//             return Err(Status::new(StatusCode::InvalidData,
+//                                    "Indexblock/Metaindexblock failed verification"));
 //         }
 
 //         // Open filter block for reading
@@ -131,7 +129,6 @@
 //         }
 
 //         metaindexiter.reset();
-
 //         let cache_id = opt.block_cache.lock().unwrap().new_cache_id();
 
 //         Ok(Table {
@@ -173,8 +170,9 @@
 //             }
 //         }
 
-//         let rfile = self.file.as_ref().as_ref();
-//         let b = TableBlock::read_block(self.opt.clone(), rfile, location).unwrap();
+//         let rfile = self.file.clone();
+//         // Two times as_ref(): First time to get a ref from Arc<>, then on from Box<>.
+//         let b = TableBlock::read_block(self.opt.clone(), rfile.as_ref().as_ref(), location)?;
 
 //         if !b.verify() {
 //             return Err(Status::new(StatusCode::InvalidData, "Data block failed verification"));
@@ -201,8 +199,8 @@
 //         self.footer.meta_index.offset()
 //     }
 
-//     // Iterators read from the file; thus only one iterator can be borrowed (mutably) per scope
-//     fn iter(&mut self) -> TableIterator {
+//     /// Iterators read from the file; thus only one iterator can be borrowed (mutably) per scope
+//     pub fn iter(&mut self) -> TableIterator {
 //         TableIterator {
 //             current_block: self.indexblock.iter(), // just for filling in here
 //             current_block_off: 0,
@@ -473,8 +471,8 @@
 //         (d, size)
 //     }
 
-//     fn wrap_buffer(src: Vec<u8>) -> Box<dyn RandomAccess> {
-//         Box::new(Cursor::new(src))
+//     fn wrap_buffer(src: Vec<u8>) -> Arc<Box<dyn RandomAccess>> {
+//         Arc::new(Box::new(src))
 //     }
 
 //     #[test]

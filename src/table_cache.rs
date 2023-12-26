@@ -17,18 +17,14 @@
 //     buf
 // }
 
-// struct TableAndFile {
-//     file: Arc<Box<dyn RandomAccess>>,
-//     table: Table,
-// }
-
 // pub struct TableCache {
 //     dbname: String,
-//     cache: Cache<TableAndFile>,
+//     cache: Cache<Table>,
 //     opts: Options,
 // }
 
 // impl TableCache {
+//     /// Create a new TableCache for the database name `db`, caching up to `entries` tables.
 //     pub fn new(db: &str, opt: Options, entries: usize) -> TableCache {
 //         TableCache {
 //             dbname: String::from(db),
@@ -37,32 +33,23 @@
 //         }
 //     }
 
-//     pub fn evict(&mut self, id: u64) {
-//         self.cache.remove(&filenum_to_key(id));
-//     }
-
 //     /// Return a table from cache, or open the backing file, then cache and return it.
-//     pub fn get_table(&mut self, file_num: u64, file_size: usize) -> Result<Table> {
+//     pub fn get_table(&mut self, file_num: u64) -> Result<Table> {
 //         let key = filenum_to_key(file_num);
-//         match self.cache.get(&key) {
-//             Some(t) => return Ok(t.table.clone()),
-//             _ => {}
+//         if let Some(t) = self.cache.get(&key) {
+//             return Ok(t.clone());
 //         }
-//         self.open_table(file_num, file_size)
+//         self.open_table(file_num)
 //     }
 
-// Open a table on the file system and read it.
-//     fn open_table(&mut self, file_num: u64, file_size: usize) -> Result<Table> {
+//     fn open_table(&mut self, file_num: u64) -> Result<Table> {
 //         let name = table_name(&self.dbname, file_num, DEFAULT_SUFFIX);
 //         let path = Path::new(&name);
 //         let file = Arc::new(self.opts.env.open_random_access_file(&path)?);
+//         let file_size = self.opts.env.size_of(&path)?;
 //         // No SSTable file name compatibility.
-//         let table = Table::new(self.opts.clone(), file.clone(), file_size)?;
-//         self.cache.insert(&filenum_to_key(file_num),
-//                           TableAndFile {
-//                               file: file.clone(),
-//                               table: table.clone(),
-//                           });
+//         let table = Table::new(self.opts.clone(), file, file_size)?;
+//         self.cache.insert(&filenum_to_key(file_num), table.clone());
 //         Ok(table)
 //     }
 
