@@ -1,7 +1,5 @@
 use std::{collections::HashMap, mem::swap};
 
-use integer_encoding::FixedIntWriter;
-
 // No clone, no copy! That asserts that an LRUHandle exists only once.
 type LRUHandle<T> = *mut LRUNode<T>;
 
@@ -150,27 +148,9 @@ impl<T> LRUList<T> {
     }
 }
 
-pub type CacheKey = Vec<u8>;
-
-#[derive(Clone)]
-pub struct CacheID(u64);
+pub type CacheKey = [u8; 16];
+pub type CacheID = u64;
 type CacheEntry<T> = (T, LRUHandle<CacheKey>);
-
-impl CacheID {
-    // Serialize a cache ID to a byte string.
-    pub fn serialize(&self) -> Vec<u8> {
-        let mut v = vec![0; 8];
-        let _ = v.write_fixedint(self.0);
-        v
-    }
-}
-
-// implement the CacheID to u64
-impl From<CacheID> for u64 {
-    fn from(id: CacheID) -> u64 {
-        id.0
-    }
-}
 
 /// Implementation of `SharedLRUCache`.
 /// Based on a HashMap; the elements are linked in order to support the LRU ordering.
@@ -199,7 +179,7 @@ impl<T> Cache<T> {
     /// among several users.
     pub fn new_cache_id(&mut self) -> CacheID {
         self.id += 1;
-        CacheID(self.id)
+        self.id
     }
 
     /// How many the cache currently contains
@@ -225,8 +205,8 @@ impl<T> Cache<T> {
             }
         }
 
-        let lru_handle = self.list.insert(key.clone());
-        self.map.insert(key.clone(), (elem, lru_handle));
+        let lru_handle = self.list.insert(*key);
+        self.map.insert(*key, (elem, lru_handle));
     }
 
     /// Retrieve an element from the cache.
@@ -255,19 +235,22 @@ impl<T> Cache<T> {
 
 #[cfg(test)]
 mod tests {
+    use super::{Cache, CacheKey};
     use crate::cache::LRUList;
 
-    use super::Cache;
+    fn make_key(a: u8, b: u8, c: u8) -> CacheKey {
+        [a, b, c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    }
 
     #[test]
     fn test_blockcache_cache_add_rm() {
         let mut cache = Cache::new(128);
 
-        let h_123 = "aaa".as_bytes().to_vec();
-        let h_521 = "aab".as_bytes().to_vec();
-        let h_372 = "aac".as_bytes().to_vec();
-        let h_332 = "aad".as_bytes().to_vec();
-        let h_899 = "aae".as_bytes().to_vec();
+        let h_123 = make_key(1, 2, 3);
+        let h_521 = make_key(1, 2, 4);
+        let h_372 = make_key(3, 4, 5);
+        let h_332 = make_key(6, 3, 1);
+        let h_899 = make_key(8, 2, 1);
 
         cache.insert(&h_123, 123);
         cache.insert(&h_332, 332);
@@ -291,11 +274,11 @@ mod tests {
     fn test_blockcache_cache_capacity() {
         let mut cache = Cache::new(3);
 
-        let h_123 = "aaa".as_bytes().to_vec();
-        let h_521 = "aab".as_bytes().to_vec();
-        let h_372 = "aac".as_bytes().to_vec();
-        let h_332 = "aad".as_bytes().to_vec();
-        let h_899 = "aae".as_bytes().to_vec();
+        let h_123 = make_key(1, 2, 3);
+        let h_521 = make_key(1, 2, 4);
+        let h_372 = make_key(3, 4, 5);
+        let h_332 = make_key(6, 3, 1);
+        let h_899 = make_key(8, 2, 1);
 
         cache.insert(&h_123, 123);
         cache.insert(&h_332, 332);
@@ -331,34 +314,6 @@ mod tests {
         assert_eq!(56, lru.remove(h_56));
         assert_eq!(lru.count(), 3);
     }
-
-    #[test]
-    fn test_block_cache_add_em() {
-        let mut cache = Cache::new(128);
-
-        let h_123 = "aaa".as_bytes().to_vec();
-        let h_521 = "aab".as_bytes().to_vec();
-        let h_372 = "aac".as_bytes().to_vec();
-        let h_332 = "aad".as_bytes().to_vec();
-        let h_899 = "aae".as_bytes().to_vec();
-
-        cache.insert(&h_123, 123);
-        cache.insert(&h_332, 332);
-        cache.insert(&h_521, 521);
-        cache.insert(&h_372, 372);
-        cache.insert(&h_899, 899);
-
-        assert_eq!(cache.count(), 5);
-        assert_eq!(cache.get(&h_123), Some(&123));
-        assert_eq!(cache.get(&h_372), Some(&372));
-        assert_eq!(cache.remove(&h_521), Some(521));
-        assert_eq!(cache.get(&h_521), None);
-        assert_eq!(cache.remove(&h_521), None);
-        assert_eq!(cache.count(), 4);
-    }
-
-    #[test]
-    fn test_block_cache_capacity() {}
 
     #[test]
     fn test_blockcache_lru_1() {
