@@ -23,7 +23,8 @@ pub struct Range<'a> {
 /// Note: Implementing types are expected to hold `!valid()` before the first call to `advance()`
 pub trait LdbIterator {
     /// advance advances the position of the iterator by one element (which can be retrieved using
-    /// current(). If no more elements are available, advance() return false.
+    /// current(). If no more elements are available, advance() return false, and the iterator
+    /// becomes invalid.
     fn advance(&mut self) -> bool;
     /// Return the currentite4m(i.e the item most recently returned by get_next())
     fn current(&self, key: &mut Vec<u8>, val: &mut Vec<u8>) -> bool;
@@ -33,9 +34,11 @@ pub trait LdbIterator {
     fn seek(&mut self, key: &[u8]);
     /// Resets the iterator to the beginning.
     fn reset(&mut self);
-    /// Returns true if the iterator is valid.
+    /// Returns true if the iterator is not positioned before the first or after the last element,
+    /// i.e if current() would return an entry.
     fn valid(&self) -> bool;
-    /// Return the current item (i.e. the item most recently returned by next())
+    /// Go to the previous item; if the iterator has reached the "before-first" item, prev()
+    /// returns false, and the iterator is invalid. This is inefficient for most iterators.
     fn prev(&mut self) -> bool;
 
     // default implementations.
