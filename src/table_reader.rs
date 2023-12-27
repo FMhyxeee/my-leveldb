@@ -213,12 +213,11 @@ impl Table {
     /// Iterators read from the file; thus only one iterator can be borrowed (mutably) per scope
     pub fn iter(&self) -> TableIterator {
         TableIterator {
-            current_block: self.indexblock.iter(), // just for filling in here
+            current_block: self.indexblock.iter(),
+            init: false,
             current_block_off: 0,
             index_block: self.indexblock.iter(),
-            opt: self.opt.clone(),
-            table: self,
-            init: false,
+            table: self.clone(),
         }
     }
 
@@ -273,9 +272,14 @@ impl Table {
 
 /// This iterator is a "TwoLevelIterator"; it uses an index block in order to get an offset hint
 /// into the data blocks.
-pub struct TableIterator<'a> {
-    table: &'a Table,
-    opt: Options,
+pub struct TableIterator {
+    // A tableIterator is independent of its table (on the syntax level -- it does not know its
+    // Table's lifetime). This is mainly required by the dynamic iterators used everywhere, where a
+    // lifetime makes things like returning an iterator from a function neigh-impossible.
+    //
+    // Instead, reference-counted pointers and locks inside the Table ensure that all
+    // TableIterators still share a table.
+    table: Table,
     current_block: BlockIter,
     current_block_off: usize,
     index_block: BlockIter,
@@ -283,9 +287,11 @@ pub struct TableIterator<'a> {
     init: bool,
 }
 
-impl<'a> TableIterator<'a> {
+impl TableIterator {
     // Skips to the entry referenced by the next index block.
     // This is called once a block has run out of entries.
+    // Err means corruption or I/O error; Ok(true) means a new block was loaded; Ok(false) means
+    // that there's no more entries.
     fn skip_to_next_entry(&mut self) -> Result<bool> {
         if let Some((_key, val)) = self.index_block.next() {
             self.load_block(&val).map(|_| true)
@@ -303,7 +309,7 @@ impl<'a> TableIterator<'a> {
     }
 }
 
-impl<'a> Iterator for TableIterator<'a> {
+impl Iterator for TableIterator {
     type Item = (Vec<u8>, Vec<u8>);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -335,7 +341,7 @@ impl<'a> Iterator for TableIterator<'a> {
     }
 }
 
-impl<'a> LdbIterator for TableIterator<'a> {
+impl LdbIterator for TableIterator {
     // A call to valid() after seeking is necessary to ensure that the seek worked (e.g., no error
     // while reading from disk)
     fn seek(&mut self, to: &[u8]) {
@@ -345,7 +351,7 @@ impl<'a> LdbIterator for TableIterator<'a> {
         self.index_block.seek(to);
 
         if let Some((past_block, handle)) = self.index_block.current() {
-            if self.opt.cmp.cmp(to, &past_block) <= Ordering::Equal {
+            if self.table.opt.cmp.cmp(to, &past_block) <= Ordering::Equal {
                 // ok, found right block: continue below
                 if let Ok(()) = self.load_block(&handle) {
                     self.current_block.seek(to);
