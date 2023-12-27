@@ -21,49 +21,88 @@ impl<'a> TestLdbIter<'a> {
     }
 }
 
-impl<'a> Iterator for TestLdbIter<'a> {
-    type Item = (&'a [u8], &'a [u8]);
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl<'a> LdbIterator for TestLdbIter<'a> {
+    fn advance(&mut self) -> bool {
         if self.ix == self.v.len() {
-            None
+            false
         } else if !self.init {
             self.init = true;
-            Some(self.v[self.ix])
+            true
         } else {
             self.ix += 1;
-            Some(self.v[self.ix - 1])
+            true
         }
     }
-}
 
-impl<'a> LdbIterator for TestLdbIter<'a> {
     fn reset(&mut self) {
         self.ix = 0;
         self.init = false;
     }
-    fn current(&self) -> Option<Self::Item> {
+
+    fn current(&self, key: &mut Vec<u8>, val: &mut Vec<u8>) -> bool {
         if self.init && self.ix < self.v.len() {
-            Some(self.v[self.ix])
+            key.clear();
+            val.clear();
+            key.extend_from_slice(self.v[self.ix].0);
+            val.extend_from_slice(self.v[self.ix].1);
+            true
         } else {
-            None
+            false
         }
     }
+
     fn valid(&self) -> bool {
         self.init
     }
+
     fn seek(&mut self, k: &[u8]) {
         self.ix = 0;
         while self.ix < self.v.len() && DefaultCmp.cmp(self.v[self.ix].0, k) == Ordering::Less {
             self.ix += 1;
         }
     }
-    fn prev(&mut self) -> Option<Self::Item> {
+    fn prev(&mut self) -> bool {
         if !self.init || self.ix == 0 {
-            None
+            false
         } else {
             self.ix -= 1;
-            Some(self.v[self.ix])
+            true
         }
+    }
+}
+
+/// LdbIteratorIter implements std::iter::Iterator for an LdbIterator.
+pub struct LdbIteratorIter<'a, It: 'a> {
+    inner: &'a mut It,
+}
+
+impl<'a, It: LdbIterator> LdbIteratorIter<'a, It> {
+    pub fn wrap(it: &'a mut It) -> LdbIteratorIter<'a, It> {
+        LdbIteratorIter { inner: it }
+    }
+}
+
+impl<'a, It: LdbIterator> Iterator for LdbIteratorIter<'a, It> {
+    type Item = (Vec<u8>, Vec<u8>);
+    fn next(&mut self) -> Option<Self::Item> {
+        LdbIterator::next(self.inner)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_test_util() {
+        let v = vec![
+            ("abc".as_bytes(), "def".as_bytes()),
+            ("abd".as_bytes(), "deg".as_bytes()),
+        ];
+        let mut iter = TestLdbIter::new(v);
+        assert_eq!(
+            iter.next(),
+            Some((Vec::from("abc".as_bytes()), Vec::from("def".as_bytes())))
+        );
     }
 }

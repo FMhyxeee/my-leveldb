@@ -1,6 +1,10 @@
 use std::{cmp::Ordering, sync::Arc};
 
-use crate::{cmp::Cmp, options::Options, types::LdbIterator};
+use crate::{
+    cmp::Cmp,
+    options::Options,
+    types::{current_key_val, LdbIterator},
+};
 
 /// Warning: This module is kinda messy. The original implementation is not that much better thought :-);
 ///
@@ -17,19 +21,16 @@ enum Direction {
     Rvrs,
 }
 
-pub struct MergingIter<'a, 'b: 'a> {
-    iters: Vec<&'a mut dyn LdbIterator<Item = (&'b [u8], &'b [u8])>>,
+pub struct MergingIter {
+    iters: Vec<Box<dyn LdbIterator>>,
     current: Option<usize>,
     direction: Direction,
     cmp: Arc<Box<dyn Cmp>>,
 }
 
-impl<'a, 'b: 'a> MergingIter<'a, 'b> {
+impl MergingIter {
     /// Construct a new merging iterator.
-    pub fn new(
-        opt: Options,
-        iters: Vec<&'a mut dyn LdbIterator<Item = (&'b [u8], &'b [u8])>>,
-    ) -> MergingIter<'a, 'b> {
+    pub fn new(opt: Options, iters: Vec<Box<dyn LdbIterator>>) -> MergingIter {
         MergingIter {
             iters,
             current: None,
@@ -41,7 +42,7 @@ impl<'a, 'b: 'a> MergingIter<'a, 'b> {
     fn init(&mut self) {
         for i in 0..self.iters.len() {
             self.iters[i].reset();
-            self.iters[i].next();
+            self.iters[i].advance();
             assert!(self.iters[i].valid());
         }
         self.find_smallest();
@@ -51,17 +52,19 @@ impl<'a, 'b: 'a> MergingIter<'a, 'b> {
     /// call was next() or prev(). This basically sets all iterators to one
     /// entry after (Fwd) or one entry before (Rvrs) the current() entry.
     fn update_direction(&mut self, d: Direction) {
-        if let Some((key, _)) = self.current() {
+        if let Some((key, _)) = current_key_val(self) {
             if let Some(current) = self.current {
                 match d {
                     Direction::Fwd if self.direction == Direction::Rvrs => {
                         self.direction = Direction::Fwd;
                         for i in 0..self.iters.len() {
                             if i != current {
-                                self.iters[i].seek(key);
-                                if let Some((current_key, _)) = self.iters[i].current() {
-                                    if self.cmp.cmp(current_key, key) == Ordering::Equal {
-                                        self.iters[i].next();
+                                self.iters[i].seek(&key);
+                                if let Some((current_key, _)) =
+                                    current_key_val(self.iters[i].as_ref())
+                                {
+                                    if self.cmp.cmp(&current_key, &key) == Ordering::Equal {
+                                        self.iters[i].advance();
                                     }
                                 }
                             }
@@ -71,7 +74,7 @@ impl<'a, 'b: 'a> MergingIter<'a, 'b> {
                         self.direction = Direction::Rvrs;
                         for i in 0..self.iters.len() {
                             if i != current {
-                                self.iters[i].seek(key);
+                                self.iters[i].seek(&key);
                                 self.iters[i].prev();
                             }
                         }
@@ -101,9 +104,9 @@ impl<'a, 'b: 'a> MergingIter<'a, 'b> {
         let mut next_ix = 0;
 
         for i in 1..self.iters.len() {
-            if let Some(current) = self.iters[i].current() {
-                if let Some(smallest) = self.iters[next_ix].current() {
-                    if self.cmp.cmp(current.0, smallest.0) == ord {
+            if let Some((current, _)) = current_key_val(self.iters[i].as_ref()) {
+                if let Some((smallest, _)) = current_key_val(self.iters[next_ix].as_ref()) {
+                    if self.cmp.cmp(&current, &smallest) == ord {
                         next_ix = i;
                     }
                 } else {
@@ -119,13 +122,11 @@ impl<'a, 'b: 'a> MergingIter<'a, 'b> {
     }
 }
 
-impl<'a, 'b: 'a> Iterator for MergingIter<'a, 'b> {
-    type Item = (&'b [u8], &'b [u8]);
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl LdbIterator for MergingIter {
+    fn advance(&mut self) -> bool {
         if let Some(current) = self.current {
             self.update_direction(Direction::Fwd);
-            if self.iters[current].next().is_none() {
+            if !self.iters[current].advance() {
                 // Take this iterator out of rotation; this will return None
                 // for every call to current() and thus it will be ignored
                 // from here on.
@@ -135,15 +136,19 @@ impl<'a, 'b: 'a> Iterator for MergingIter<'a, 'b> {
         } else {
             self.init();
         }
-
-        self.iters[self.current.unwrap()].current()
+        self.valid()
     }
-}
 
-impl<'a, 'b: 'a> LdbIterator for MergingIter<'a, 'b> {
     fn valid(&self) -> bool {
-        return self.current.is_some() && self.iters.iter().any(|it| it.valid());
+        if let Some(ix) = self.current {
+            // TODO: second clause is unnecessary, because first asserts that at least one iterator
+            // is valid.
+            self.iters[ix].valid() && self.iters.iter().any(|it| it.valid())
+        } else {
+            false
+        }
     }
+
     fn seek(&mut self, key: &[u8]) {
         for i in 0..self.iters.len() {
             self.iters[i].seek(key);
@@ -155,25 +160,25 @@ impl<'a, 'b: 'a> LdbIterator for MergingIter<'a, 'b> {
             self.iters[i].reset();
         }
     }
-    fn current(&self) -> Option<Self::Item> {
+    fn current(&self, key: &mut Vec<u8>, val: &mut Vec<u8>) -> bool {
         if let Some(ix) = self.current {
-            self.iters[ix].current()
+            self.iters[ix].current(key, val)
         } else {
-            None
+            false
         }
     }
-    fn prev(&mut self) -> Option<Self::Item> {
+    fn prev(&mut self) -> bool {
         if let Some(current) = self.current {
-            if let Some((_, _)) = self.current() {
+            if self.iters[current].valid() {
                 self.update_direction(Direction::Rvrs);
                 self.iters[current].prev();
                 self.find_largest();
-                self.current()
+                true
             } else {
-                None
+                false
             }
         } else {
-            None
+            false
         }
     }
 }
@@ -182,6 +187,7 @@ impl<'a, 'b: 'a> LdbIterator for MergingIter<'a, 'b> {
 mod tests {
     use crate::skipmap;
     use crate::test_util;
+    use crate::test_util::LdbIteratorIter;
     use crate::types;
 
     use super::*;
@@ -193,12 +199,13 @@ mod tests {
     #[test]
     fn test_merging_one() {
         let skm = tests::make_skipmap();
-        let mut iter = skm.iter();
+        let iter = skm.iter();
         let mut iter2 = skm.iter();
 
-        let mut miter = MergingIter::new(Options::default(), vec![&mut iter]);
+        // TODO - use a non-lifetimed iterator. Or rewrite f'ing MergingIter.
+        let mut miter = MergingIter::new(Options::default(), vec![Box::new(iter)]);
 
-        for (k, v) in miter.by_ref() {
+        while let Some((k, v)) = miter.next() {
             if let Some((k2, v2)) = iter2.next() {
                 assert_eq!(k, k2);
                 assert_eq!(v, v2);
@@ -211,10 +218,10 @@ mod tests {
     #[test]
     fn test_merging_two() {
         let skm = tests::make_skipmap();
-        let mut iter = skm.iter();
-        let mut iter2 = skm.iter();
+        let iter = skm.iter();
+        let iter2 = skm.iter();
 
-        let mut miter = MergingIter::new(Options::default(), vec![&mut iter, &mut iter2]);
+        let mut miter = MergingIter::new(Options::default(), vec![Box::new(iter), Box::new(iter2)]);
 
         while let Some((k, v)) = miter.next() {
             if let Some((k2, v2)) = miter.next() {
@@ -229,17 +236,18 @@ mod tests {
     #[test]
     fn test_merging_fwd_bckwd() {
         let skm = tests::make_skipmap();
-        let mut iter = skm.iter();
-        let mut iter2 = skm.iter();
+        let iter = skm.iter();
+        let iter2 = skm.iter();
 
-        let mut miter = MergingIter::new(Options::default(), vec![&mut iter, &mut iter2]);
+        let mut miter = MergingIter::new(Options::default(), vec![Box::new(iter), Box::new(iter2)]);
 
         let first = miter.next();
         miter.next();
         let third = miter.next();
 
         assert!(first != third);
-        let second = miter.prev();
+        assert!(miter.prev());
+        let second = current_key_val(&miter);
         assert_eq!(first, second);
     }
 
@@ -251,13 +259,13 @@ mod tests {
     fn test_merging_real() {
         let val = "def".as_bytes();
 
-        let mut it1 = TestLdbIter::new(vec![(b("aba"), val), (b("abc"), val), (b("abe"), val)]);
-        let mut it2 = TestLdbIter::new(vec![(b("abb"), val), (b("abd"), val)]);
+        let it1 = TestLdbIter::new(vec![(b("aba"), val), (b("abc"), val), (b("abe"), val)]);
+        let it2 = TestLdbIter::new(vec![(b("abb"), val), (b("abd"), val)]);
         let expected = vec![b("aba"), b("abb"), b("abc"), b("abd"), b("abe")];
 
-        let iter = MergingIter::new(Options::default(), vec![&mut it1, &mut it2]);
+        let mut iter = MergingIter::new(Options::default(), vec![Box::new(it1), Box::new(it2)]);
 
-        for (i, (k, _)) in iter.enumerate() {
+        for (i, (k, _)) in LdbIteratorIter::wrap(&mut iter).enumerate() {
             assert_eq!(k, expected[i]);
         }
     }
@@ -266,27 +274,36 @@ mod tests {
     fn test_merging_seek_reset() {
         let val = "def".as_bytes();
 
-        let mut it1 = TestLdbIter::new(vec![(b("aba"), val), (b("abc"), val), (b("abe"), val)]);
-        let mut it2 = TestLdbIter::new(vec![(b("abb"), val), (b("abd"), val)]);
+        let it1 = TestLdbIter::new(vec![(b("aba"), val), (b("abc"), val), (b("abe"), val)]);
+        let it2 = TestLdbIter::new(vec![(b("abb"), val), (b("abd"), val)]);
 
-        let mut iter = MergingIter::new(Options::default(), vec![&mut it1, &mut it2]);
+        let mut iter = MergingIter::new(Options::default(), vec![Box::new(it1), Box::new(it2)]);
 
         assert!(!iter.valid());
-        iter.next();
+        iter.advance();
         assert!(iter.valid());
-        assert!(iter.current().is_some());
+        assert!(current_key_val(&iter).is_some());
 
         iter.seek("abc".as_bytes());
-        assert_eq!(iter.current(), Some((b("abc"), val)));
+        assert_eq!(
+            current_key_val(&iter),
+            Some((b("abc").to_vec(), val.to_vec()))
+        );
         iter.seek("ab0".as_bytes());
-        assert_eq!(iter.current(), Some((b("aba"), val)));
+        assert_eq!(
+            current_key_val(&iter),
+            Some((b("aba").to_vec(), val.to_vec()))
+        );
         iter.seek("abx".as_bytes());
-        assert_eq!(iter.current(), None);
+        assert_eq!(current_key_val(&iter), None);
 
         iter.reset();
         assert!(!iter.valid());
         iter.next();
-        assert_eq!(iter.current(), Some((b("aba"), val)));
+        assert_eq!(
+            current_key_val(&iter),
+            Some((b("aba").to_vec(), val.to_vec()))
+        );
     }
 
     // oomph... TODO: fix behavior here
@@ -294,10 +311,10 @@ mod tests {
     fn test_merging_fwd_bckwd_2() {
         let val = "def".as_bytes();
 
-        let mut it1 = TestLdbIter::new(vec![(b("aba"), val), (b("abc"), val), (b("abe"), val)]);
-        let mut it2 = TestLdbIter::new(vec![(b("abb"), val), (b("abd"), val)]);
+        let it1 = TestLdbIter::new(vec![(b("aba"), val), (b("abc"), val), (b("abe"), val)]);
+        let it2 = TestLdbIter::new(vec![(b("abb"), val), (b("abd"), val)]);
 
-        let mut iter = MergingIter::new(Options::default(), vec![&mut it1, &mut it2]);
+        let mut iter = MergingIter::new(Options::default(), vec![Box::new(it1), Box::new(it2)]);
 
         iter.next();
         iter.next();

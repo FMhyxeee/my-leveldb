@@ -136,7 +136,7 @@ impl BlockIter {
         i += valsizedlen;
 
         self.val_offset = self.offset + i + non_shared;
-        self.offset = self.offset + i + non_shared + valsize;
+        self.offset = self.val_offset + valsize;
 
         (shared, non_shared, valsize, i)
     }
@@ -162,25 +162,23 @@ impl BlockIter {
             self.reset();
         }
 
-        for (_, _) in self.by_ref() {}
+        while self.advance() {}
     }
 }
 
-impl Iterator for BlockIter {
-    type Item = (Vec<u8>, Vec<u8>);
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl LdbIterator for BlockIter {
+    fn advance(&mut self) -> bool {
         if self.offset >= self.restarts_off {
             self.offset = self.restarts_off;
             // current_entry_offset is left at the offset of the last entry
-            return None;
+            return false;
         } else {
             self.current_entry_offset = self.offset;
         }
 
         let current_off = self.current_entry_offset;
 
-        let (shared, non_shared, valsize, entry_head_len) = self.parse_entry_and_advance();
+        let (shared, non_shared, _valsize, entry_head_len) = self.parse_entry_and_advance();
         self.assemble_key(current_off + entry_head_len, shared, non_shared);
 
         // Adjust current_restart_ix
@@ -190,14 +188,9 @@ impl Iterator for BlockIter {
         {
             self.current_restart_ix += 1;
         }
-        Some((
-            self.key.clone(),
-            Vec::from(&self.block[self.val_offset..self.val_offset + valsize]),
-        ))
+        true
     }
-}
 
-impl LdbIterator for BlockIter {
     fn reset(&mut self) {
         self.offset = 0;
         self.val_offset = 0;
@@ -205,14 +198,14 @@ impl LdbIterator for BlockIter {
         self.key.clear();
     }
 
-    fn prev(&mut self) -> Option<Self::Item> {
+    fn prev(&mut self) -> bool {
         // as in the original implementation -- seek to last restart point, then look for key
         let orig_offset = self.current_entry_offset;
 
         // At the beginning, can't go further back
         if orig_offset == 0 {
             self.reset();
-            return None;
+            return false;
         }
 
         while self.get_restart_point(self.current_restart_ix) >= orig_offset {
@@ -233,7 +226,7 @@ impl LdbIterator for BlockIter {
         // Stop if the next entry would be the original one (self.offset always points to the start
         // of the next entry)
         loop {
-            result = self.next();
+            result = self.advance();
 
             if self.offset >= orig_offset {
                 break;
@@ -282,14 +275,15 @@ impl LdbIterator for BlockIter {
         !self.key.is_empty() && self.val_offset > 0 && self.val_offset < self.restarts_off
     }
 
-    fn current(&self) -> Option<Self::Item> {
+    fn current(&self, key: &mut Vec<u8>, val: &mut Vec<u8>) -> bool {
         if self.valid() {
-            Some((
-                self.key.clone(),
-                Vec::from(&self.block[self.val_offset..self.offset]),
-            ))
+            key.clear();
+            val.clear();
+            key.extend_from_slice(&self.key);
+            val.extend_from_slice(&self.block[self.val_offset..self.offset]);
+            true
         } else {
-            None
+            false
         }
     }
 }
@@ -403,6 +397,8 @@ impl BlockBuilder {
 #[cfg(test)]
 mod tests {
 
+    use crate::{test_util::LdbIteratorIter, types::current_key_val};
+
     use super::*;
 
     fn get_data() -> Vec<(&'static [u8], &'static [u8])> {
@@ -452,7 +448,7 @@ mod tests {
 
         let block = Block::new(Options::default(), blockc);
 
-        for _ in block.iter() {
+        for _ in LdbIteratorIter::wrap(&mut block.iter()) {
             panic!("expected 0 iterations");
         }
     }
@@ -467,12 +463,12 @@ mod tests {
         }
 
         let block_contents = builder.finish();
-        let block = Block::new(Options::default(), block_contents).iter();
+        let mut block = Block::new(Options::default(), block_contents).iter();
         let mut i = 0;
 
         assert!(!block.valid());
 
-        for (k, v) in block {
+        for (k, v) in LdbIteratorIter::wrap(&mut block) {
             assert_eq!(&k[..], data[i].0);
             assert_eq!(v, data[i].1);
             i += 1;
@@ -507,7 +503,7 @@ mod tests {
         block.prev();
         assert!(block.valid());
         assert_eq!(
-            block.current(),
+            current_key_val(&block),
             Some(("key1".as_bytes().to_vec(), "value1".as_bytes().to_vec()))
         );
         block.prev();
@@ -515,12 +511,12 @@ mod tests {
         //
         // Verify that prev() from the last entry goes to the prev-to-last entry
         // (essentially, that next() returning None doesn't advance anything)
-        for _ in block.by_ref() {}
+        while block.next().is_some() {}
 
         block.prev();
         assert!(block.valid());
         assert_eq!(
-            block.current(),
+            current_key_val(&block),
             Some((
                 "prefix_key2".as_bytes().to_vec(),
                 "value".as_bytes().to_vec()
@@ -549,7 +545,7 @@ mod tests {
         block.seek("prefix_key2".as_bytes());
         assert!(block.valid());
         assert_eq!(
-            block.current(),
+            current_key_val(&block),
             Some((
                 "prefix_key2".as_bytes().to_vec(),
                 "value".as_bytes().to_vec()
@@ -559,7 +555,7 @@ mod tests {
         block.seek("prefix_key0".as_bytes());
         assert!(block.valid());
         assert_eq!(
-            block.current(),
+            current_key_val(&block),
             Some((
                 "prefix_key1".as_bytes().to_vec(),
                 "value".as_bytes().to_vec()
@@ -569,14 +565,14 @@ mod tests {
         block.seek("key1".as_bytes());
         assert!(block.valid());
         assert_eq!(
-            block.current(),
+            current_key_val(&block),
             Some(("key1".as_bytes().to_vec(), "value1".as_bytes().to_vec()))
         );
 
         block.seek("prefix_key3".as_bytes());
         assert!(block.valid());
         assert_eq!(
-            block.current(),
+            current_key_val(&block),
             Some((
                 "prefix_key3".as_bytes().to_vec(),
                 "value".as_bytes().to_vec()
@@ -586,7 +582,7 @@ mod tests {
         block.seek("prefix_key8".as_bytes());
         assert!(block.valid());
         assert_eq!(
-            block.current(),
+            current_key_val(&block),
             Some((
                 "prefix_key3".as_bytes().to_vec(),
                 "value".as_bytes().to_vec()
@@ -620,7 +616,7 @@ mod tests {
             assert!(block.valid());
 
             assert_eq!(
-                block.current(),
+                current_key_val(&block),
                 Some((
                     "prefix_key3".as_bytes().to_vec(),
                     "value".as_bytes().to_vec()
