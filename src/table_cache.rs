@@ -1,3 +1,7 @@
+//! table_cache implements a cache providing access to the immutable SSTables on disk. It's a
+//! read-through cache, meaning that non-present tables are read from disk and cached before being
+//! returned.
+
 // use std::{sync::Arc, path::Path};
 
 // use integer_encoding::FixedIntWriter;

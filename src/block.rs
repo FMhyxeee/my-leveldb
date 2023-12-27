@@ -6,6 +6,10 @@ use integer_encoding::{FixedInt, VarInt};
 
 pub type BlockContents = Vec<u8>;
 
+/// A Block is an immutable ordered set of key/value entries.
+///
+/// The structure internally looks like follows:
+///
 /// A block is a list of ENTRIES followed by a list of RESTARTS, terminated by a fixed u32 N_RESTARTS
 ///
 /// An ENTRY consists of three varints, SHARED, NONSHARED, VALSIZE, a KEY and a VALUE.
@@ -30,8 +34,8 @@ pub struct Block {
 impl Block {
     /// Return an iterator over this block.
     /// Note that the iterator isn't bound th the block's lifetime, the iterator uses the same
-    /// refcounted block contents as this block. (meaning also that if the iterator isn't released,
-    /// the memory occupied by the block isn't, either)
+    /// refcounted block contents as this blockm, meaning that if the iterator isn't released,
+    /// the memory occupied by the block isn't, either
     pub fn iter(&self) -> BlockIter {
         let restarts = u32::decode_fixed(&self.block[self.block.len() - 4..]);
         let restart_offset = self.block.len() - 4 - 4 * restarts as usize;
@@ -62,6 +66,8 @@ impl Block {
     }
 }
 
+/// BlockIter is an iterator over the entries in a block. It doesn't depend on the Block's
+/// lifetime, as it uses a refcounted block underneath.
 pub struct BlockIter {
     /// The underlying block contents.
     /// TODO: Maybe (probably..) this needs an Arc
