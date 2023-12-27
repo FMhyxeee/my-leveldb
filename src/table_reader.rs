@@ -97,11 +97,12 @@ pub struct Table {
 impl Table {
     /// Creates a new table reader operating on unformatted keys(i.e., UserKeys).
     pub fn new_raw(opt: Options, file: Arc<Box<dyn RandomAccess>>, size: usize) -> Result<Table> {
-        let rfile = file.as_ref().as_ref();
-        let footer = read_footer(rfile, size).unwrap();
+        let footer = read_footer(file.as_ref().as_ref(), size).unwrap();
 
-        let indexblock = TableBlock::read_block(opt.clone(), rfile, &footer.index)?;
-        let metaindexblock = TableBlock::read_block(opt.clone(), rfile, &footer.meta_index)?;
+        let indexblock =
+            TableBlock::read_block(opt.clone(), file.as_ref().as_ref(), &footer.index)?;
+        let metaindexblock =
+            TableBlock::read_block(opt.clone(), file.as_ref().as_ref(), &footer.meta_index)?;
 
         if !indexblock.verify() || !metaindexblock.verify() {
             return Err(Status::new(
@@ -124,7 +125,7 @@ impl Table {
             let filter_block_location = BlockHandle::decode(&val).0;
 
             if filter_block_location.size() > 0 {
-                let buf = read_bytes(rfile, &filter_block_location)?;
+                let buf = read_bytes(file.as_ref().as_ref(), &filter_block_location)?;
                 filter_block_reader =
                     Some(FilterBlockReader::new_owned(opt.filter_policy.clone(), buf));
             }
@@ -135,7 +136,7 @@ impl Table {
 
         Ok(Table {
             // clone file here so that we can use a immutable reference rfile above.
-            file: file.clone(),
+            file,
             file_size: size,
             cache_id,
             opt,
@@ -177,9 +178,8 @@ impl Table {
             }
         }
 
-        let rfile = self.file.clone();
         // Two times as_ref(): First time to get a ref from Arc<>, then on from Box<>.
-        let b = TableBlock::read_block(self.opt.clone(), rfile.as_ref().as_ref(), location)?;
+        let b = TableBlock::read_block(self.opt.clone(), self.file.as_ref().as_ref(), location)?;
 
         if !b.verify() {
             return Err(Status::new(
