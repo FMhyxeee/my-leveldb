@@ -80,6 +80,13 @@ impl Cmp for DefaultCmp {
     }
 }
 
+impl InternalKeyCmp {
+    /// cmp_inner compares a and b using the underlying comparator (the "user comparator").
+    fn cmp_inner(&self, a: &[u8], b: &[u8]) -> Ordering {
+        self.0.cmp(a, b)
+    }
+}
+
 /// Same as memtable_key_cmp, buf for InternalKeys.
 #[derive(Clone)]
 pub struct InternalKeyCmp(pub Arc<Box<dyn Cmp>>);
@@ -293,6 +300,24 @@ mod tests {
             ),
             LookupKey::new("abc".as_bytes(), 2).internal_key()
         );
+    }
+
+    #[test]
+    fn test_cmp_internalkeycmp() {
+        let cmp = InternalKeyCmp(Arc::new(Box::new(DefaultCmp)));
+        // a < b < c
+        let a = LookupKey::new("abc".as_bytes(), 2).internal_key().to_vec();
+        let b = LookupKey::new("abc".as_bytes(), 1).internal_key().to_vec();
+        let c = LookupKey::new("abd".as_bytes(), 3).internal_key().to_vec();
+        let d = "xyy".as_bytes();
+        let e = "xyz".as_bytes();
+
+        assert_eq!(Ordering::Less, cmp.cmp(&a, &b));
+        assert_eq!(Ordering::Equal, cmp.cmp(&a, &a));
+        assert_eq!(Ordering::Greater, cmp.cmp(&b, &a));
+        assert_eq!(Ordering::Less, cmp.cmp(&a, &c));
+        assert_eq!(Ordering::Less, cmp.cmp_inner(d, e));
+        assert_eq!(Ordering::Greater, cmp.cmp_inner(e, d));
     }
 
     #[test]
