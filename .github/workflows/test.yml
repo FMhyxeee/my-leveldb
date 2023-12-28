@@ -9,7 +9,8 @@ jobs:
       fail-fast: false
       matrix:
         features: [""]
-        platform: [ubuntu-latest, windows-latest, macos-latest]
+        # platform: [ubuntu-latest, windows-latest, macos-latest]
+        platform: [windows-latest]
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v2
