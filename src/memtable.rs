@@ -170,7 +170,10 @@ fn shift_left(s: &mut Vec<u8>, mid: usize) {
 #[cfg(test)]
 mod tests {
 
-    use crate::{key_types::parse_tag, test_util::LdbIteratorIter};
+    use crate::{
+        key_types::parse_tag,
+        test_util::{test_iterator_properties, LdbIteratorIter},
+    };
 
     use super::*;
 
@@ -355,5 +358,22 @@ mod tests {
         assert_eq!(tag, 123 << 8 | 1);
         assert_eq!(vallen, 3);
         assert_eq!(&key[valoff..valoff + vallen], vec![4, 5, 6].as_slice());
+    }
+
+    #[test]
+    fn test_memtable_iterator_behavior() {
+        let mut mt = MemTable::new(Options::default());
+        let entries = vec![
+            (115, "abc", "122"),
+            (120, "abc", "123"),
+            (121, "abd", "124"),
+            (123, "abf", "126"),
+        ];
+
+        for e in entries.iter() {
+            mt.add(e.0, ValueType::TypeValue, e.1.as_bytes(), e.2.as_bytes());
+        }
+
+        test_iterator_properties(mt.iter());
     }
 }
