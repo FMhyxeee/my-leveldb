@@ -320,7 +320,10 @@ impl LdbIterator for TableIterator {
             } else {
                 match self.skip_to_next_entry() {
                     Ok(true) => self.advance(),
-                    Ok(false) => false,
+                    Ok(false) => {
+                        self.reset();
+                        false
+                    }
                     // try next block, this might be corruption
                     Err(_) => self.advance(),
                 }
@@ -332,7 +335,10 @@ impl LdbIterator for TableIterator {
                     self.init = true;
                     self.advance()
                 }
-                Ok(false) => false,
+                Ok(false) => {
+                    self.reset();
+                    false
+                }
                 // try next block from index, this might be corruption
                 Err(_) => self.advance(),
             }
@@ -411,8 +417,10 @@ impl LdbIterator for TableIterator {
 mod tests {
 
     use crate::{
-        filter::BloomPolicy, key_types::LookupKey, table_builder::TableBuilder,
-        test_util::LdbIteratorIter,
+        filter::BloomPolicy,
+        key_types::LookupKey,
+        table_builder::TableBuilder,
+        test_util::{test_iterator_properties, LdbIteratorIter},
     };
 
     use super::*;
@@ -432,8 +440,9 @@ mod tests {
         ]
     }
 
-    // Build a table containing raw keys (no format)
-    fn build_table() -> (Vec<u8>, usize) {
+    // Build a table containing raw keys (no format). It returns (vector, length) for convenience
+    // reason, a call f(v, v.len()) doesn't work for borrowing reasons.
+    fn build_table(data: Vec<(&'static str, &'static str)>) -> (Vec<u8>, usize) {
         let mut d = Vec::with_capacity(512);
         let opt = Options {
             block_restart_interval: 2,
@@ -444,7 +453,6 @@ mod tests {
         {
             // Uses the standard comparator in opt.
             let mut b = TableBuilder::new(opt, &mut d);
-            let data = build_data();
 
             for &(k, v) in data.iter() {
                 b.add(k.as_bytes(), v.as_bytes());
@@ -501,7 +509,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_table_cache_use() {
-        let (src, size) = build_table();
+        let (src, size) = build_table(build_data());
         let opt = Options {
             block_size: 32,
             ..Default::default()
@@ -524,8 +532,18 @@ mod tests {
 
     #[test]
     #[ignore]
+    fn test_table_iterator_behavior() {
+        let mut data = build_data();
+        data.truncate(4);
+        let (src, size) = build_table(data);
+        let table = Table::new_raw(Options::default(), wrap_buffer(src), size).unwrap();
+        test_iterator_properties(table.iter());
+    }
+
+    #[test]
+    #[ignore]
     fn test_table_iterator_fwd_bwd() {
-        let (src, size) = build_table();
+        let (src, size) = build_table(build_data());
         let data = build_data();
 
         let table = Table::new_raw(Options::default(), wrap_buffer(src), size).unwrap();
@@ -542,20 +560,35 @@ mod tests {
         }
 
         assert_eq!(i, data.len());
-        assert!(iter.next().is_none());
+        assert!(!iter.valid());
+
+        // Go forward again, to last entry.
+        while let Some((key, _)) = iter.next() {
+            println!("{:?}", key);
+            if key.as_slice() == "zzz".as_bytes() {
+                break;
+            }
+        }
+        assert!(iter.valid());
+        println!("{:?}", current_key_val(&iter));
 
         // backwards count
         let mut j = 0;
 
-        while let Some((k, v)) = current_key_val(&iter) {
-            j += 1;
-            assert_eq!(
-                (
-                    data[data.len() - 1 - j].0.as_bytes(),
-                    data[data.len() - 1 - j].1.as_bytes()
-                ),
-                (k.as_ref(), v.as_ref())
-            );
+        while iter.prev() {
+            println!("{:?}", current_key_val(&iter));
+            if let Some((k, v)) = current_key_val(&iter) {
+                j += 1;
+                assert_eq!(
+                    (
+                        data[data.len() - 1 - j].0.as_bytes(),
+                        data[data.len() - 1 - j].1.as_bytes()
+                    ),
+                    (k.as_ref(), v.as_ref())
+                );
+            } else {
+                break;
+            }
         }
 
         // expecting 7 - 1, because the last entry that the iterator stopped on is the last entry
@@ -566,7 +599,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_table_iterator_filter() {
-        let (src, size) = build_table();
+        let (src, size) = build_table(build_data());
 
         let table = Table::new_raw(Options::default(), wrap_buffer(src), size).unwrap();
 
@@ -585,7 +618,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_table_iterator_state_behavior() {
-        let (src, size) = build_table();
+        let (src, size) = build_table(build_data());
 
         let table = Table::new_raw(Options::default(), wrap_buffer(src), size).unwrap();
 
@@ -616,7 +649,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_table_iterator_values() {
-        let (src, size) = build_table();
+        let (src, size) = build_table(build_data());
         let data = build_data();
 
         let table = Table::new_raw(Options::default(), wrap_buffer(src), size).unwrap();
@@ -654,7 +687,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_table_iterator_seek() {
-        let (src, size) = build_table();
+        let (src, size) = build_table(build_data());
 
         let table = Table::new_raw(Options::default(), wrap_buffer(src), size).unwrap();
         let mut iter = table.iter();
@@ -676,7 +709,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_table_get() {
-        let (src, size) = build_table();
+        let (src, size) = build_table(build_data());
 
         let table = Table::new_raw(Options::default(), wrap_buffer(src), size).unwrap();
         let table2 = table.clone();
@@ -734,7 +767,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_table_reader_checksum() {
-        let (mut src, size) = build_table();
+        let (mut src, size) = build_table(build_data());
         println!("{}", size);
 
         src[10] += 1;

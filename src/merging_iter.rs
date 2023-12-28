@@ -165,6 +165,7 @@ impl LdbIterator for MergingIter {
         for i in 0..self.iters.len() {
             self.iters[i].reset();
         }
+        self.current = None;
     }
     fn current(&self, key: &mut Vec<u8>, val: &mut Vec<u8>) -> bool {
         if let Some(ix) = self.current {
@@ -179,7 +180,7 @@ impl LdbIterator for MergingIter {
                 self.update_direction(Direction::Rvrs);
                 self.iters[current].prev();
                 self.find_largest();
-                true
+                self.valid()
             } else {
                 false
             }
@@ -193,6 +194,7 @@ impl LdbIterator for MergingIter {
 mod tests {
     use crate::skipmap;
     use crate::test_util;
+    use crate::test_util::test_iterator_properties;
     use crate::test_util::LdbIteratorIter;
     use crate::types;
 
@@ -236,6 +238,15 @@ mod tests {
                 panic!("Odd number of elements");
             }
         }
+    }
+
+    #[test]
+    fn test_merging_behavior() {
+        let val = "def".as_bytes();
+        let iter = TestLdbIter::new(vec![(b("aba"), val), (b("abc"), val)]);
+        let iter2 = TestLdbIter::new(vec![(b("abb"), val), (b("abd"), val)]);
+        let miter = MergingIter::new(Options::default(), vec![Box::new(iter), Box::new(iter2)]);
+        test_iterator_properties(miter);
     }
 
     #[test]

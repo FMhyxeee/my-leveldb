@@ -291,7 +291,7 @@ pub struct SkipMapIter {
 impl LdbIterator for SkipMapIter {
     fn advance(&mut self) -> bool {
         // we first go to the next element, then return that -- in order to skip the head node
-        unsafe {
+        let r = unsafe {
             (*self.current)
                 .next
                 .as_ref()
@@ -300,7 +300,11 @@ impl LdbIterator for SkipMapIter {
                     true
                 })
                 .unwrap_or(false)
+        };
+        if !r {
+            self.reset();
         }
+        r
     }
 
     fn reset(&mut self) {
@@ -349,7 +353,10 @@ impl LdbIterator for SkipMapIter {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::{test_util::LdbIteratorIter, types::*};
+    use crate::{
+        test_util::{test_iterator_properties, LdbIteratorIter},
+        types::*,
+    };
 
     use super::*;
 
@@ -441,7 +448,7 @@ pub mod tests {
     }
 
     #[test]
-    fn test_iterator_0() {
+    fn test_skipmap_iterator_0() {
         let skm = SkipMap::new(Options::default());
         let mut i = 0;
 
@@ -454,7 +461,7 @@ pub mod tests {
     }
 
     #[test]
-    fn test_iterator_init() {
+    fn test_skipmap_iterator_init() {
         let skm = make_skipmap();
         let mut iter = skm.iter();
 
@@ -464,7 +471,7 @@ pub mod tests {
     }
 
     #[test]
-    fn test_iterator() {
+    fn test_skipmap_iterator() {
         let skm = make_skipmap();
         let mut i = 0;
 
@@ -478,7 +485,7 @@ pub mod tests {
     }
 
     #[test]
-    fn test_iterator_seek_valid() {
+    fn test_skipmap_iterator_seek_valid() {
         let skm = make_skipmap();
         let mut iter = skm.iter();
 
@@ -498,18 +505,25 @@ pub mod tests {
         iter.prev();
         assert!(!iter.valid());
 
-        while iter.next().is_some() {}
+        while iter.advance() {}
 
-        assert_eq!(iter.next(), None);
-        assert!(iter.prev());
-        assert_eq!(
-            current_key_val(&iter),
-            Some(("aby".as_bytes().to_vec(), "def".as_bytes().to_vec()))
-        );
+        assert!(!iter.valid());
+        assert!(!iter.prev());
+        assert_eq!(current_key_val(&iter), None);
     }
 
     #[test]
-    fn test_iterator_prev() {
+    fn test_skipmap_behavior() {
+        let mut skm = SkipMap::new(Options::default());
+        let keys = vec!["aba", "abb", "abc", "abd"];
+        for k in keys {
+            skm.insert(k.as_bytes().to_vec(), "def".as_bytes().to_vec());
+        }
+        test_iterator_properties(skm.iter());
+    }
+
+    #[test]
+    fn test_skipmap_iterator_prev() {
         let skm = make_skipmap();
         let mut iter = skm.iter();
 
