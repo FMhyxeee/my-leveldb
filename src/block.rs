@@ -1,9 +1,6 @@
 use std::{cmp::Ordering, rc::Rc};
 
-use crate::{
-    options::Options,
-    types::{current_key_val, LdbIterator},
-};
+use crate::{options::Options, types::LdbIterator};
 
 use integer_encoding::{FixedInt, VarInt};
 
@@ -167,8 +164,10 @@ impl BlockIter {
         }
 
         // Stop at last entry, before the iterator becomes invalid.
+        //
+        // We're checking the position before calling advance; if a restart point points to the
+        // last entry, calling advance() will directly reset the iterator.
         while self.offset < self.restarts_off {
-            println!("seek {:?}", current_key_val(self));
             self.advance();
         }
         assert!(self.valid());
@@ -200,7 +199,6 @@ impl LdbIterator for BlockIter {
     }
 
     fn reset(&mut self) {
-        println!("reset block");
         self.offset = 0;
         self.val_offset = 0;
         self.current_restart_ix = 0;
@@ -281,14 +279,6 @@ impl LdbIterator for BlockIter {
     }
 
     fn valid(&self) -> bool {
-        println!(
-            "valid: {:?} {:?} {:?} {:?}",
-            self.key.is_empty(),
-            self.offset,
-            self.val_offset,
-            self.restarts_off
-        );
-
         !self.key.is_empty() && self.val_offset > 0 && self.val_offset < self.restarts_off
     }
 
