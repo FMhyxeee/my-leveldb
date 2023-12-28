@@ -1,7 +1,7 @@
 //! An `env` is an abstraction layer that allows the database to run both on different platforms as
 //! well as persisting data on disk or in memory.
 
-use crate::error::{from_io_result, Result};
+use crate::error::Result;
 
 use std::fs::File;
 use std::io::{Read, Write};
@@ -25,7 +25,7 @@ impl RandomAccess for File {
 
 impl RandomAccess for File {
     fn read_at(&self, off: usize, dst: &mut [u8]) -> Result<usize> {
-        from_io_result((self as &dyn FileExt).seek_read(dst, off as u64))
+        Ok((self as &dyn FileExt).seek_read(dst, off as u64)?)
     }
 }
 
