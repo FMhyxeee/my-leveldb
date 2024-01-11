@@ -59,17 +59,17 @@ impl LookupKey {
         }
     }
 
-    // Returns full key
+    /// Returns the full memtable-formattd key.
     pub fn memtable_key(&self) -> MemtableKey {
         self.key.as_slice()
     }
 
-    // Returns only key
+    /// Returns only the user key portion.
     pub fn user_key(&self) -> UserKey {
         &self.key[self.key_offset..self.key.len() - 8]
     }
 
-    // Returns key+tag
+    /// Returns key and tag.
     pub fn internal_key(&self) -> InternalKey {
         &self.key[self.key_offset..]
     }
@@ -157,6 +157,9 @@ pub fn parse_memtable_key(mkey: MemtableKey) -> (usize, usize, u64, usize, usize
 
 /// Parse a key in Internal format.
 pub fn parse_internal_key(ikey: InternalKey) -> (CompressionType, u64, UserKey) {
+    if ikey.is_empty() {
+        return (CompressionType::CompressionNone, 0, ikey);
+    }
     assert!(ikey.len() >= 8);
 
     let (ctype, seq) = parse_tag(FixedInt::decode_fixed(&ikey[ikey.len() - 8..]));
