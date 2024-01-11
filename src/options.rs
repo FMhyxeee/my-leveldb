@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::{rc::Rc, sync::Mutex};
 
 use crate::{
     block::Block,
@@ -36,15 +36,15 @@ pub fn int_to_compressiontype(i: u32) -> Option<CompressionType> {
 ///
 #[derive(Clone)]
 pub struct Options {
-    pub cmp: Arc<Box<dyn Cmp>>,
-    pub env: Arc<Box<dyn Env>>,
+    pub cmp: Rc<Box<dyn Cmp>>,
+    pub env: Rc<Box<dyn Env>>,
     pub create_if_missing: bool,
     pub error_if_exists: bool,
     pub paranoid_checks: bool,
     // pub logger: Logger,
     pub write_buffer_size: usize,
     pub max_open_file: usize,
-    pub block_cache: Arc<Mutex<Cache<Block>>>,
+    pub block_cache: Rc<Mutex<Cache<Block>>>,
     pub block_size: usize,
     pub block_restart_interval: usize,
     pub compression_type: CompressionType,
@@ -55,15 +55,15 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self {
-            cmp: Arc::new(Box::new(DefaultCmp)),
-            env: Arc::new(Box::new(PosixDiskEnv::new())),
+            cmp: Rc::new(Box::new(DefaultCmp)),
+            env: Rc::new(Box::new(PosixDiskEnv::new())),
             create_if_missing: true,
             error_if_exists: false,
             paranoid_checks: false,
             write_buffer_size: WRITE_BUFFER_SIZE,
             max_open_file: 1 << 10,
             // 2000 elements by default
-            block_cache: Arc::new(Mutex::new(Cache::new(
+            block_cache: Rc::new(Mutex::new(Cache::new(
                 BLOCK_CACHE_CAPACITY / BLOCK_MAX_SIZE,
             ))),
             block_size: BLOCK_MAX_SIZE,
@@ -82,13 +82,13 @@ impl Options {
     /// If the comparator used differs from the one used when writing a database that is being
     /// opened, the library is free to panic.
     pub fn set_comparator(&mut self, c: Box<dyn Cmp>) {
-        self.cmp = Arc::new(c);
+        self.cmp = Rc::new(c);
     }
 
     /// Supplied to DB read operations
     /// Deprecated: Will soon be removed to reduce complexity.
     pub fn set_env(&mut self, e: Box<dyn Env>) {
-        self.env = Arc::new(e);
+        self.env = Rc::new(e);
     }
 }
 

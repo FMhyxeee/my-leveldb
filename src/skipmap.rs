@@ -3,7 +3,6 @@ use std::{
     cmp::Ordering,
     mem::{replace, size_of},
     rc::Rc,
-    sync::Arc,
 };
 
 use rand::{rngs::StdRng, RngCore, SeedableRng};
@@ -42,7 +41,7 @@ pub struct SkipMap {
 impl SkipMap {
     /// Returns a SkipMap that wraps the comparator from opt inside a MemtableKeyCmp
     pub fn new_memtable_map(mut opt: Options) -> SkipMap {
-        opt.cmp = Arc::new(Box::new(MemtableKeyCmp(opt.cmp.clone())));
+        opt.cmp = Rc::new(Box::new(MemtableKeyCmp(opt.cmp.clone())));
         SkipMap::new(opt)
     }
 

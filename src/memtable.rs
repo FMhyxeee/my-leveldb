@@ -1,5 +1,5 @@
 use integer_encoding::FixedInt;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use crate::{
     cmp::MemtableKeyCmp,
@@ -22,7 +22,7 @@ impl MemTable {
     /// Returns a new MemTable
     /// This wraps opt.cmp inside a MemtableKey-specific comparator.
     pub fn new(mut opt: Options) -> Self {
-        opt.cmp = Arc::new(Box::new(MemtableKeyCmp(opt.cmp)));
+        opt.cmp = Rc::new(Box::new(MemtableKeyCmp(opt.cmp)));
         MemTable::new_raw(opt)
     }
 

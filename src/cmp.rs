@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, sync::Arc};
+use std::{cmp::Ordering, rc::Rc};
 
 use crate::{
     key_types::{self, LookupKey},
@@ -89,7 +89,7 @@ impl InternalKeyCmp {
 
 /// Same as memtable_key_cmp, buf for InternalKeys.
 #[derive(Clone)]
-pub struct InternalKeyCmp(pub Arc<Box<dyn Cmp>>);
+pub struct InternalKeyCmp(pub Rc<Box<dyn Cmp>>);
 
 impl Cmp for InternalKeyCmp {
     fn cmp(&self, a: &[u8], b: &[u8]) -> Ordering {
@@ -136,7 +136,7 @@ impl Cmp for InternalKeyCmp {
 /// ordering the sequence number. (This means that when having an entry abx/4 and searching for abx/5,
 /// then abx/4 is counted as "greater-or-equal", making snapshot functionality work at all)
 #[derive(Clone)]
-pub struct MemtableKeyCmp(pub Arc<Box<dyn Cmp>>);
+pub struct MemtableKeyCmp(pub Rc<Box<dyn Cmp>>);
 
 impl Cmp for MemtableKeyCmp {
     fn cmp(&self, a: &[u8], b: &[u8]) -> Ordering {
@@ -200,8 +200,6 @@ mod tests {
     use super::*;
     use key_types::LookupKey;
 
-    use std::sync::Arc;
-
     #[test]
     fn test_cmp_defaultcmp_shortest_sep() {
         assert_eq!(
@@ -257,7 +255,7 @@ mod tests {
 
     #[test]
     fn test_cmp_internalkeycmp_shortest_sep() {
-        let cmp = InternalKeyCmp(Arc::new(Box::new(DefaultCmp)));
+        let cmp = InternalKeyCmp(Rc::new(Box::new(DefaultCmp)));
         assert_eq!(
             cmp.find_shortest_sep(
                 LookupKey::new("abcd".as_bytes(), 1).internal_key(),
@@ -304,7 +302,7 @@ mod tests {
 
     #[test]
     fn test_cmp_internalkeycmp() {
-        let cmp = InternalKeyCmp(Arc::new(Box::new(DefaultCmp)));
+        let cmp = InternalKeyCmp(Rc::new(Box::new(DefaultCmp)));
         // a < b < c
         let a = LookupKey::new("abc".as_bytes(), 2).internal_key().to_vec();
         let b = LookupKey::new("abc".as_bytes(), 1).internal_key().to_vec();
@@ -323,7 +321,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_cmp_memtablekeycmp_panics() {
-        let cmp = MemtableKeyCmp(Arc::new(Box::new(DefaultCmp)));
+        let cmp = MemtableKeyCmp(Rc::new(Box::new(DefaultCmp)));
         cmp.cmp(&[1, 2, 3], &[4, 5, 6]);
     }
 }

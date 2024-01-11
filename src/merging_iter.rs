@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, sync::Arc};
+use std::{cmp::Ordering, rc::Rc};
 
 use crate::{
     cmp::Cmp,
@@ -25,7 +25,7 @@ pub struct MergingIter {
     iters: Vec<Box<dyn LdbIterator>>,
     current: Option<usize>,
     direction: Direction,
-    cmp: Arc<Box<dyn Cmp>>,
+    cmp: Rc<Box<dyn Cmp>>,
 }
 
 impl MergingIter {

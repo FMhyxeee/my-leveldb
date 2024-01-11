@@ -1,6 +1,6 @@
 use crc::{crc32, Hasher32};
 use integer_encoding::FixedInt;
-use std::{cmp::Ordering, io::Write, sync::Arc};
+use std::{cmp::Ordering, io::Write, rc::Rc};
 
 use crate::{
     block::{BlockBuilder, BlockContents},
@@ -100,7 +100,7 @@ impl<'a, Dst: Write> TableBuilder<'a, Dst> {
     /// The comparator in opt will be wrapped in a InternalKeyCmp, and the filter policy
     /// in an InternalFilterPolicy.
     pub fn new(mut opt: Options, dst: Dst) -> TableBuilder<'a, Dst> {
-        opt.cmp = Arc::new(Box::new(InternalKeyCmp(opt.cmp.clone())));
+        opt.cmp = Rc::new(Box::new(InternalKeyCmp(opt.cmp.clone())));
         opt.filter_policy = InternalFilterPolicy::new_wrap(opt.filter_policy);
         TableBuilder::new_raw(opt, dst)
     }

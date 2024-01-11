@@ -1,6 +1,6 @@
 use crc::{crc32, Hasher32};
 use integer_encoding::{FixedInt, FixedIntWriter};
-use std::{cmp::Ordering, sync::Arc};
+use std::{cmp::Ordering, rc::Rc, sync::Arc};
 
 use crate::{
     block::{Block, BlockIter},
@@ -151,7 +151,7 @@ impl Table {
     /// a different comparator (internal_key_cmp) and a different filter policy
     /// (InternalFilterPolicy) are used.
     pub fn new(mut opt: Options, file: Arc<Box<dyn RandomAccess>>, size: usize) -> Result<Table> {
-        opt.cmp = Arc::new(Box::new(InternalKeyCmp(opt.cmp.clone())));
+        opt.cmp = Rc::new(Box::new(InternalKeyCmp(opt.cmp.clone())));
         opt.filter_policy = InternalFilterPolicy::new_wrap(opt.filter_policy);
         let t = Table::new_raw(opt, file, size)?;
         Ok(t)
