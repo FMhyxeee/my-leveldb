@@ -40,13 +40,24 @@ impl SnapshotList {
     }
 
     pub fn delete(&mut self, ss: Snapshot) {
-        if self.oldest == ss {
-            self.oldest += 1;
-        }
-        if self.newest == ss {
-            self.newest -= 1;
-        }
         self.map.remove(&ss);
+        if self.oldest == ss {
+            self.oldest = self.newest;
+            for (seq, _) in self.map.iter() {
+                if *seq < self.oldest {
+                    self.oldest = *seq;
+                }
+            }
+        }
+
+        if self.newest == ss {
+            self.newest = self.oldest;
+            for (seq, _) in self.map.iter() {
+                if *seq > self.newest {
+                    self.newest = *seq;
+                }
+            }
+        }
     }
 
     pub fn empty(&self) -> bool {
