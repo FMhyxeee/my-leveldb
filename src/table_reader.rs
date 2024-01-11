@@ -532,16 +532,6 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn test_table_iterator_behavior() {
-        let mut data = build_data();
-        data.truncate(4);
-        let (src, size) = build_table(data);
-        let table = Table::new_raw(Options::default(), wrap_buffer(src), size).unwrap();
-        test_iterator_properties(table.iter());
-    }
-
-    #[test]
-    #[ignore]
     fn test_table_iterator_fwd_bwd() {
         let (src, size) = build_table(build_data());
         let data = build_data();
@@ -644,6 +634,16 @@ mod tests {
         assert!(!iter.valid());
         assert!(current_key_val(&iter).is_none());
         assert_eq!(first, iter.next());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_table_iterator_behavior_standard() {
+        let mut data = build_data();
+        data.truncate(4);
+        let (src, size) = build_table(data);
+        let table = Table::new_raw(Options::default(), wrap_buffer(src), size).unwrap();
+        test_iterator_properties(table.iter());
     }
 
     #[test]

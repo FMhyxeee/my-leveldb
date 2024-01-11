@@ -359,6 +359,8 @@ impl LdbIterator for SkipMapIter {
 
 #[cfg(test)]
 pub mod tests {
+    use time_test::time_test;
+
     use crate::{
         test_util::{test_iterator_properties, LdbIteratorIter},
         types::*,
@@ -568,6 +570,7 @@ pub mod tests {
 
     #[test]
     fn test_skipmap_iterator_concurrent_insert() {
+        time_test!();
         // Asserts that the map can be mutated while an iterator exists; this is intentional.
         let mut skm = make_skipmap();
         let mut iter = skm.iter();

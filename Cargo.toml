@@ -16,6 +16,7 @@ rand = "0.8.5"
 errno = { optional = true, version = "0.2" }
 fs2 = {optional = true, version = "0.4.3"}
 tokio = { optional = true, features = ["rt", "sync"], version = ">= 1.21" }
+time-test = "0.2.3"
 
 
 
