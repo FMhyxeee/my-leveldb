@@ -155,7 +155,7 @@ mod tests {
     fn test_write_betch() {
         let mut b = WriteBatch::new();
 
-        let entries = vec![
+        let entries = [
             ("abc".as_bytes(), "def".as_bytes()),
             ("123".as_bytes(), "456".as_bytes()),
             ("xxx".as_bytes(), "yyy".as_bytes()),

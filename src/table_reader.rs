@@ -1,6 +1,6 @@
 use crc::{crc32, Hasher32};
 use integer_encoding::{FixedInt, FixedIntWriter};
-use std::{cmp::Ordering, rc::Rc, sync::Arc};
+use std::{cmp::Ordering, rc::Rc};
 
 use crate::{
     block::{Block, BlockIter},
@@ -84,7 +84,7 @@ impl TableBlock {
 
 #[derive(Clone)]
 pub struct Table {
-    file: Arc<Box<dyn RandomAccess>>,
+    file: Rc<Box<dyn RandomAccess>>,
     file_size: usize,
     cache_id: CacheID,
 
@@ -97,7 +97,7 @@ pub struct Table {
 
 impl Table {
     /// Creates a new table reader operating on unformatted keys(i.e., UserKeys).
-    pub fn new_raw(opt: Options, file: Arc<Box<dyn RandomAccess>>, size: usize) -> Result<Table> {
+    pub fn new_raw(opt: Options, file: Rc<Box<dyn RandomAccess>>, size: usize) -> Result<Table> {
         let footer = read_footer(file.as_ref().as_ref(), size).unwrap();
 
         let indexblock =
@@ -150,7 +150,7 @@ impl Table {
     /// Creates a new table reader operating on internal keys (i.e., InternalKey). This means that
     /// a different comparator (internal_key_cmp) and a different filter policy
     /// (InternalFilterPolicy) are used.
-    pub fn new(mut opt: Options, file: Arc<Box<dyn RandomAccess>>, size: usize) -> Result<Table> {
+    pub fn new(mut opt: Options, file: Rc<Box<dyn RandomAccess>>, size: usize) -> Result<Table> {
         opt.cmp = Rc::new(Box::new(InternalKeyCmp(opt.cmp.clone())));
         opt.filter_policy = InternalFilterPolicy::new_wrap(opt.filter_policy);
         let t = Table::new_raw(opt, file, size)?;
@@ -502,8 +502,8 @@ mod tests {
         (d, size)
     }
 
-    fn wrap_buffer(src: Vec<u8>) -> Arc<Box<dyn RandomAccess>> {
-        Arc::new(Box::new(src))
+    fn wrap_buffer(src: Vec<u8>) -> Rc<Box<dyn RandomAccess>> {
+        Rc::new(Box::new(src))
     }
 
     #[test]

@@ -23,6 +23,7 @@ mod table_cache;
 mod table_reader;
 mod types;
 mod version_edit;
+mod version_set;
 mod write_batch;
 
 mod test_util;

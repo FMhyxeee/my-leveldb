@@ -370,7 +370,7 @@ mod tests {
     fn test_blockcache_lru_reinsert_2() {
         let mut lru = LRUList::<usize>::new();
 
-        let handles = vec![
+        let handles = [
             lru.insert(0),
             lru.insert(1),
             lru.insert(2),

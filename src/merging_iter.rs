@@ -120,7 +120,6 @@ impl MergingIter {
                 } else {
                     next_ix = i;
                 }
-            } else {
             }
         }
 
@@ -298,7 +297,7 @@ mod tests {
 
         let it1 = TestLdbIter::new(vec![(b("aba"), val), (b("abc"), val), (b("abe"), val)]);
         let it2 = TestLdbIter::new(vec![(b("abb"), val), (b("abd"), val)]);
-        let expected = vec![b("aba"), b("abb"), b("abc"), b("abd"), b("abe")];
+        let expected = [b("aba"), b("abb"), b("abc"), b("abd"), b("abe")];
 
         let mut iter = MergingIter::new(Options::default(), vec![Box::new(it1), Box::new(it2)]);
 

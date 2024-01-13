@@ -194,7 +194,7 @@ mod tests {
 
     fn get_memtable() -> MemTable {
         let mut mt = MemTable::new(Options::default());
-        let entries = vec![
+        let entries = [
             (115, "abc", "122"),
             (120, "abc", "123"),
             (121, "abd", "124"),
@@ -294,7 +294,7 @@ mod tests {
         let mt = get_memtable();
         let mut iter = mt.iter();
 
-        let expected = vec![
+        let expected = [
             "123".as_bytes(), /* i.e., the abc entry with
                                * higher sequence number comes first */
             "122".as_bytes(),
@@ -368,7 +368,7 @@ mod tests {
     #[ignore]
     fn test_memtable_iterator_behavior() {
         let mut mt = MemTable::new(Options::default());
-        let entries = vec![
+        let entries = [
             (115, "abc", "122"),
             (120, "abc", "123"),
             (121, "abd", "124"),

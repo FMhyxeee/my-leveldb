@@ -2,7 +2,7 @@
 //! read-through cache, meaning that non-present tables are read from disk and cached before being
 //! returned.
 
-use std::{path::Path, sync::Arc};
+use std::{path::Path, rc::Rc};
 
 use integer_encoding::FixedIntWriter;
 
@@ -55,7 +55,7 @@ impl TableCache {
     fn open_table(&mut self, file_num: u64) -> Result<Table> {
         let name = table_name(&self.dbname, file_num, DEFAULT_SUFFIX);
         let path = Path::new(&name);
-        let file = Arc::new(self.opts.env.open_random_access_file(path)?);
+        let file = Rc::new(self.opts.env.open_random_access_file(path)?);
         let file_size = self.opts.env.size_of(path)?;
         // No SSTable file name compatibility.
         let table = Table::new(self.opts.clone(), file, file_size)?;
@@ -91,7 +91,7 @@ mod tests {
         let w = o.env.open_writable_file(p).unwrap();
         let mut b = TableBuilder::new_raw(o, w);
 
-        let data = vec![
+        let data = [
             ("abc", "def"),
             ("abd", "dee"),
             ("bcd", "asa"),

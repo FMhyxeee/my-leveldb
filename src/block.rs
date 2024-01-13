@@ -473,7 +473,7 @@ mod tests {
 
         let block = Block::new(Options::default(), blockc);
 
-        for _ in LdbIteratorIter::wrap(&mut block.iter()) {
+        if LdbIteratorIter::wrap(&mut block.iter()).next().is_some() {
             panic!("expected 0 iterations");
         }
     }

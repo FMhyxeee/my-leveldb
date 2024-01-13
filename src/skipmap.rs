@@ -258,7 +258,9 @@ impl InnerSkipMap {
         new.next = unsafe { (*current).next.take() };
 
         // ...and then setting the previous element's next field to the new node
-        unsafe { replace(&mut (*current).next, Some(new)) };
+        unsafe {
+            let _ = replace(&mut (*current).next, Some(new));
+        };
     }
 
     // Runs through the skipmap and prints everything including addresses

@@ -274,7 +274,7 @@ mod tests {
         };
         let mut b = TableBuilder::new_raw(opt, &mut d);
 
-        let data = vec![
+        let data = [
             ("abc", "def"),
             ("abd", "dee"),
             ("bcd", "asa"),
@@ -300,7 +300,7 @@ mod tests {
         let mut b = TableBuilder::new_raw(opt, &mut d);
 
         // Test Two equal consecution keys
-        let data = vec![
+        let data = [
             ("abc", "def"),
             ("abc", "dee"),
             ("bcd", "asa"),

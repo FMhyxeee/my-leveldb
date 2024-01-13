@@ -1,6 +1,5 @@
-use std::sync::Arc;
-
 use integer_encoding::FixedInt;
+use std::rc::Rc;
 
 /// Encapsulates a filter algorithm allowing to search for keys more efficiently.
 /// Usually, policies are used as a BoxedFilterPolicy (see below), so they
@@ -16,7 +15,7 @@ pub trait FilterPolicy {
 
 /// A boxed and refcounted filter policy (reference-counted because a Box with unsized content
 /// could not be cloned otherwise).
-pub type BoxedFilterPolicy = Arc<Box<dyn FilterPolicy>>;
+pub type BoxedFilterPolicy = Rc<Box<dyn FilterPolicy>>;
 
 /// Used for tables that don't have filter blocks but need a type parameter.
 #[derive(Clone)]
@@ -24,7 +23,7 @@ pub struct NoFilterPolicy;
 
 impl NoFilterPolicy {
     pub fn new_wrap() -> BoxedFilterPolicy {
-        Arc::new(Box::new(NoFilterPolicy))
+        Rc::new(Box::new(NoFilterPolicy))
     }
 }
 
@@ -55,7 +54,7 @@ pub struct BloomPolicy {
 impl BloomPolicy {
     /// Returns a new boxed BloomPolicy.
     pub fn new_wrap(bits_per_key: u32) -> BoxedFilterPolicy {
-        Arc::new(Box::new(BloomPolicy::new_unwrapped(bits_per_key)))
+        Rc::new(Box::new(BloomPolicy::new_unwrapped(bits_per_key)))
     }
 
     /// Returns a new BloomPolicy with the given parameters.
@@ -178,7 +177,7 @@ pub struct InternalFilterPolicy {
 
 impl InternalFilterPolicy {
     pub fn new_wrap(inner: BoxedFilterPolicy) -> BoxedFilterPolicy {
-        Arc::new(Box::new(InternalFilterPolicy { internal: inner }))
+        Rc::new(Box::new(InternalFilterPolicy { internal: inner }))
     }
 }
 

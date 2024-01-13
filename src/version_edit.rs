@@ -1,6 +1,7 @@
 use std::{
     collections::HashSet,
     io::{Read, Write},
+    vec,
 };
 
 use integer_encoding::{VarIntReader, VarIntWriter};
@@ -46,7 +47,7 @@ fn tag_to_enum(t: u32) -> Option<EditTag> {
 
 fn read_length_prefixed<R: Read>(reader: &mut R) -> Result<Vec<u8>, Status> {
     if let Ok(klen) = reader.read_varint() {
-        let mut keybuf = Vec::new();
+        let mut keybuf = vec![0; klen];
         keybuf.resize(klen, 0);
 
         if let Ok(l) = reader.read(&mut keybuf) {
