@@ -16,7 +16,7 @@ use crate::{
 
 const DEFAULT_SUFFIX: &str = "ldb";
 
-fn table_name(name: &str, num: u64, suff: &str) -> String {
+pub fn table_name(name: &str, num: u64, suff: &str) -> String {
     assert!(num > 0);
     format!("{}/{:06}.{}", name, num, suff)
 }

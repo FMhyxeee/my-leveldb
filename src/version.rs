@@ -247,7 +247,12 @@ impl Version {
             parse_internal_key(end).2.to_vec(),
         );
 
-        loop {
+        let mut done = false;
+        while !done {
+            // By default, only do one search. In the special case outlined below, done is set to
+            // false in order to restart the search from scratch.
+            done = true;
+
             'inner: for f in self.files[level].iter() {
                 let ((_, _, fsmallest), (_, _, flargest)) = (
                     parse_internal_key(&f.smallest),
@@ -270,18 +275,21 @@ impl Version {
                         {
                             ubegin = fsmallest.to_vec();
                             inputs.truncate(0);
+                            done = false;
                             break 'inner;
                         } else if !uend.is_empty()
                             && self.user_cmp.cmp(flargest, &uend) == Ordering::Greater
                         {
                             uend = flargest.to_vec();
                             inputs.truncate(0);
+                            done = false;
                             break 'inner;
                         }
                     }
                 }
             }
         }
+        inputs
     }
 
     fn new_concat_iter(&self, level: usize) -> VersionIter {
@@ -442,7 +450,12 @@ fn some_file_overlaps_range(
 
 #[cfg(test)]
 mod tests {
-    use crate::cmp::DefaultCmp;
+    use std::path::Path;
+
+    use crate::{
+        cmp::DefaultCmp, env::Env, mem_env::MemEnv, options::Options, table_builder::TableBuilder,
+        table_cache::table_name,
+    };
 
     use super::*;
 
@@ -458,6 +471,145 @@ mod tests {
                 .to_vec(),
             largest: LookupKey::new(largest, 0).internal_key().to_vec(),
         })
+    }
+
+    /// write_table creates a table with the given number and contents (must be sorted!) in the
+    /// memenv. The sequence numbers given to keys start with startseq.
+    fn write_table(
+        me: &MemEnv,
+        contents: &[(&[u8], &[u8])],
+        startseq: u64,
+        num: u64,
+    ) -> FileMetaHandle {
+        let dst = me
+            .open_writable_file(Path::new(&table_name("db", num, "ldb")))
+            .unwrap();
+        let mut seq = startseq;
+        let keys: Vec<Vec<u8>> = contents
+            .iter()
+            .map(|&(k, _)| {
+                seq += 1;
+                LookupKey::new(k, seq).internal_key().to_vec()
+            })
+            .collect();
+
+        let mut tbl = TableBuilder::new(Options::default(), dst);
+        for i in 0..contents.len() {
+            tbl.add(&keys[i], contents[i].1);
+            seq += 1;
+        }
+
+        let mut f = new_file(
+            num,
+            LookupKey::new(contents[0].0, MAX_SEQUENCE_NUMBER).internal_key(),
+            LookupKey::new(contents[contents.len() - 1].0, 0).internal_key(),
+        );
+        Rc::get_mut(&mut f).unwrap().size = tbl.finish() as u64;
+        f
+    }
+
+    fn make_version() -> Version {
+        time_test!("make_version");
+        let mut opts = Options::default();
+        let env = MemEnv::new();
+
+        // Level 0 (overlapping)
+        let f1: &[(&[u8], &[u8])] = &[
+            ("aaa".as_bytes(), "val1".as_bytes()),
+            ("aab".as_bytes(), "val2".as_bytes()),
+            ("aba".as_bytes(), "val3".as_bytes()),
+        ];
+        let t1 = write_table(&env, f1, 1, 1);
+        let f2: &[(&[u8], &[u8])] = &[
+            ("aax".as_bytes(), "val1".as_bytes()),
+            ("bab".as_bytes(), "val2".as_bytes()),
+            ("bba".as_bytes(), "val3".as_bytes()),
+        ];
+        let t2 = write_table(&env, f2, 4, 2);
+        // Level 1
+        let f3: &[(&[u8], &[u8])] = &[
+            ("caa".as_bytes(), "val1".as_bytes()),
+            ("cab".as_bytes(), "val2".as_bytes()),
+            ("cba".as_bytes(), "val3".as_bytes()),
+        ];
+        let t3 = write_table(&env, f3, 7, 3);
+        let f4: &[(&[u8], &[u8])] = &[
+            ("data".as_bytes(), "val1".as_bytes()),
+            ("dab".as_bytes(), "val2".as_bytes()),
+            ("dba".as_bytes(), "val3".as_bytes()),
+        ];
+        let t4 = write_table(&env, f4, 10, 4);
+        let f5: &[(&[u8], &[u8])] = &[
+            ("eaa".as_bytes(), "val1".as_bytes()),
+            ("eab".as_bytes(), "val2".as_bytes()),
+            ("eba".as_bytes(), "val3".as_bytes()),
+        ];
+        let t5 = write_table(&env, f5, 13, 5);
+        // Level 2
+        let f6: &[(&[u8], &[u8])] = &[
+            ("faa".as_bytes(), "val1".as_bytes()),
+            ("fab".as_bytes(), "val2".as_bytes()),
+            ("fba".as_bytes(), "val3".as_bytes()),
+        ];
+        let t6 = write_table(&env, f6, 16, 6);
+        let f7: &[(&[u8], &[u8])] = &[
+            ("gaa".as_bytes(), "val1".as_bytes()),
+            ("gab".as_bytes(), "val2".as_bytes()),
+            ("gba".as_bytes(), "val3".as_bytes()),
+        ];
+        let t7 = write_table(&env, f7, 19, 7);
+
+        opts.set_env(Box::new(env));
+        let cache = TableCache::new("db", opts, 100);
+        let mut v = Version::new(Rc::new(cache), Rc::new(Box::new(DefaultCmp)));
+        v.files[0] = vec![t1, t2];
+        v.files[1] = vec![t3, t4, t5];
+        v.files[2] = vec![t6, t7];
+        v
+    }
+
+    #[test]
+    #[ignore]
+    fn test_version_overlapping_inputs() {
+        let v = make_version();
+
+        time_test!("overlapping-inputs");
+        {
+            time_test!("overlapping-inputs-1");
+            // Range is expanded in overlapping level-0 files.
+            let from = LookupKey::new("aab".as_bytes(), MAX_SEQUENCE_NUMBER);
+            let to = LookupKey::new("aae".as_bytes(), 0);
+            let r = v.overlapping_inputs(0, from.internal_key(), to.internal_key());
+            assert_eq!(r.len(), 2);
+            assert_eq!(r[0].num, 1);
+            assert_eq!(r[1].num, 2);
+        }
+        {
+            let from = LookupKey::new("cab".as_bytes(), MAX_SEQUENCE_NUMBER);
+            let to = LookupKey::new("cbx".as_bytes(), 0);
+            // expect one file.
+            let r = v.overlapping_inputs(1, from.internal_key(), to.internal_key());
+            assert_eq!(r.len(), 1);
+            assert_eq!(r[0].num, 3);
+        }
+        {
+            let from = LookupKey::new("cab".as_bytes(), MAX_SEQUENCE_NUMBER);
+            let to = LookupKey::new("ebx".as_bytes(), 0);
+            let r = v.overlapping_inputs(1, from.internal_key(), to.internal_key());
+            // Assert that correct number of files and correct files were returned.
+            assert_eq!(r.len(), 3);
+            assert_eq!(r[0].num, 3);
+            assert_eq!(r[1].num, 4);
+            assert_eq!(r[2].num, 5);
+        }
+        {
+            let from = LookupKey::new("hhh".as_bytes(), MAX_SEQUENCE_NUMBER);
+            let to = LookupKey::new("ijk".as_bytes(), 0);
+            let r = v.overlapping_inputs(2, from.internal_key(), to.internal_key());
+            assert_eq!(r.len(), 0);
+            let r = v.overlapping_inputs(1, from.internal_key(), to.internal_key());
+            assert_eq!(r.len(), 0);
+        }
     }
 
     #[test]
