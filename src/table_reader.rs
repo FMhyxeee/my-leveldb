@@ -179,7 +179,7 @@ impl Table {
             }
         }
 
-        // Two times as_ref(): First time to get a ref from Arc<>, then on from Box<>.
+        // Two times as_ref(): First time to get a ref from Rc<>, then on from Box<>.
         let b = TableBlock::read_block(self.opt.clone(), self.file.as_ref().as_ref(), location)?;
 
         if !b.verify() {

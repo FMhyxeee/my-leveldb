@@ -2,7 +2,7 @@
 //! read-through cache, meaning that non-present tables are read from disk and cached before being
 //! returned.
 
-use std::{path::Path, rc::Rc};
+use std::{cell::RefCell, path::Path, rc::Rc};
 
 use integer_encoding::FixedIntWriter;
 
@@ -32,6 +32,8 @@ pub struct TableCache {
     cache: Cache<Table>,
     opts: Options,
 }
+
+pub type SharedTableCache = Rc<RefCell<TableCache>>;
 
 impl TableCache {
     /// Create a new TableCache for the database name `db`, caching up to `entries` tables.

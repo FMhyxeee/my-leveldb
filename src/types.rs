@@ -1,5 +1,7 @@
 //! A collection of fundamentail and/or simple types used by other modules
 
+use std::{cell::RefCell, rc::Rc};
+
 #[derive(Debug, PartialEq, PartialOrd)]
 pub enum ValueType {
     TypeDeletion = 0,
@@ -10,6 +12,13 @@ pub enum ValueType {
 pub type SequenceNumber = u64;
 
 pub const MAX_SEQUENCE_NUMBER: SequenceNumber = (1 << 56) - 1;
+
+/// A shared thingy with interior mutability.
+pub type Share<T> = Rc<RefCell<T>>;
+
+pub fn share<T>(t: T) -> Rc<RefCell<T>> {
+    Rc::new(RefCell::new(t))
+}
 
 /// Denotes a key range
 pub struct Range<'a> {
