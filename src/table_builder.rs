@@ -277,15 +277,23 @@ mod tests {
 
         let data = [
             ("abc", "def"),
-            ("abd", "dee"),
+            ("abe", "dee"),
             ("bcd", "asa"),
-            ("bsr", "a00"),
+            ("dcc", "a00"),
+        ];
+        let data2 = [
+            ("abd", "def"),
+            ("abf", "dee"),
+            ("ccd", "asa"),
+            ("dcd", "a00"),
         ];
 
-        for &(k, v) in data.iter() {
-            b.add(k.as_bytes(), v.as_bytes());
+        for i in 0..data.len() {
+            b.add(data[i].0.as_bytes(), data[i].1.as_bytes());
+            b.add(data2[i].0.as_bytes(), data2[i].1.as_bytes());
         }
 
+        assert!(b.filter_block.is_some());
         b.finish();
     }
 
