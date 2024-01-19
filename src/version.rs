@@ -42,8 +42,7 @@ impl Version {
 
     /// get_full_impl does the same as get(), but implements the entire logic itself instead of
     /// delegating some of it to get_overlapping().
-    #[allow(unused_assignments)]
-    fn get_full_impl(&mut self, key: &LookupKey) -> Result<Option<(Vec<u8>, GetStats)>> {
+    fn get_full_impl(&self, key: &LookupKey) -> Result<Option<(Vec<u8>, GetStats)>> {
         let ikey = key.internal_key();
         let ukey = key.user_key();
         let icmp = InternalKeyCmp(self.user_cmp.clone());
@@ -87,18 +86,26 @@ impl Version {
                 continue;
             }
 
-            let mut last_read = None;
-            let mut last_read_level: usize = 0;
+            let last_read = None;
+            let last_read_level: usize = 0;
             if let Some(f) = to_search.into_iter().next() {
                 if last_read.is_some() && stats.file.is_none() {
                     stats.file = last_read.clone();
                     stats.level = last_read_level;
                 }
-                last_read_level = level;
-                last_read = Some(f.clone());
+                // last_read_level = level;
+                // last_read = Some(f.clone());
 
-                let val = self.table_cache.borrow_mut().get(f.borrow().num, ikey)?;
-                return Ok(val.map(|v| (v, stats)));
+                // We receive both key and value from the table. Because we're using InternalKey keys,
+                // we now need to check whether the found entry's user key is equal to the
+                // one we're looking for (get() just returns the next-bigger key).
+                if let Ok(Some((k, v))) = self.table_cache.borrow_mut().get(f.borrow().num, ikey) {
+                    if self.user_cmp.cmp(parse_internal_key(&k).2, key.user_key())
+                        == Ordering::Equal
+                    {
+                        return Ok(Some((v, stats)));
+                    }
+                }
             }
         }
         Ok(None)
@@ -107,7 +114,7 @@ impl Version {
     /// get returns the value for the specified key using the persistent tables contained in this
     /// Version.
     #[allow(unused_assignments)]
-    fn get(&mut self, key: &LookupKey) -> Result<Option<(Vec<u8>, GetStats)>> {
+    fn get(&self, key: &LookupKey) -> Result<Option<(Vec<u8>, GetStats)>> {
         let levels = self.get_overlapping(key);
         let ikey = key.internal_key();
         let mut stats = GetStats {
@@ -126,8 +133,16 @@ impl Version {
                 last_read_level = level;
                 last_read = Some(f.clone());
 
-                let val = self.table_cache.borrow_mut().get(f.borrow().num, ikey)?;
-                return Ok(val.map(|v| (v, stats)));
+                // We receive both key and value from the table. Because we're using InternalKey
+                // keys, we now need to check whether the found entry's user key is equal to the
+                // one we're looking for (get() just returns the next-bigger key).
+                if let Ok(Some((k, v))) = self.table_cache.borrow_mut().get(f.borrow().num, ikey) {
+                    if self.user_cmp.cmp(parse_internal_key(&k).2, key.user_key())
+                        == Ordering::Equal
+                    {
+                        return Ok(Some((v, stats)));
+                    }
+                }
             }
         }
         Ok(None)
