@@ -40,77 +40,6 @@ impl Version {
         }
     }
 
-    /// get_full_impl does the same as get(), but implements the entire logic itself instead of
-    /// delegating some of it to get_overlapping().
-    fn get_full_impl(&self, key: &LookupKey) -> Result<Option<(Vec<u8>, GetStats)>> {
-        let ikey = key.internal_key();
-        let ukey = key.user_key();
-        let icmp = InternalKeyCmp(self.user_cmp.clone());
-        let mut stats = GetStats {
-            file: None,
-            level: 0,
-        };
-
-        // Search for key, starting at the lowest level and working upwards.
-        for level in 0..NUM_LEVELS {
-            let files = &self.files[level];
-            let mut to_search = vec![];
-
-            if level == 0 {
-                to_search.reserve(files.len());
-                for f_ in files {
-                    let f = f_.borrow();
-                    let (fsmallest, flargest) = (
-                        parse_internal_key(&f.smallest).2,
-                        parse_internal_key(&f.largest).2,
-                    );
-                    if self.user_cmp.cmp(ukey, fsmallest) >= Ordering::Equal
-                        && self.user_cmp.cmp(ukey, flargest) <= Ordering::Equal
-                    {
-                        to_search.push(f_.clone());
-                    }
-                }
-                to_search.sort_by(|a, b| a.borrow().num.cmp(&b.borrow().num));
-            } else {
-                let ix = find_file(&icmp, files, ikey);
-                if ix < files.len() {
-                    let f = files[ix].borrow();
-                    let fsmallest = parse_internal_key(&f.smallest).2;
-                    if self.user_cmp.cmp(ukey, fsmallest) >= Ordering::Equal {
-                        to_search.push(files[ix].clone());
-                    }
-                }
-            }
-
-            if files.is_empty() {
-                continue;
-            }
-
-            let last_read = None;
-            let last_read_level: usize = 0;
-            if let Some(f) = to_search.into_iter().next() {
-                if last_read.is_some() && stats.file.is_none() {
-                    stats.file = last_read.clone();
-                    stats.level = last_read_level;
-                }
-                // last_read_level = level;
-                // last_read = Some(f.clone());
-
-                // We receive both key and value from the table. Because we're using InternalKey keys,
-                // we now need to check whether the found entry's user key is equal to the
-                // one we're looking for (get() just returns the next-bigger key).
-                if let Ok(Some((k, v))) = self.table_cache.borrow_mut().get(f.borrow().num, ikey) {
-                    if self.user_cmp.cmp(parse_internal_key(&k).2, key.user_key())
-                        == Ordering::Equal
-                    {
-                        return Ok(Some((v, stats)));
-                    }
-                }
-            }
-        }
-        Ok(None)
-    }
-
     /// get returns the value for the specified key using the persistent tables contained in this
     /// Version.
     #[allow(unused_assignments)]
@@ -597,6 +526,31 @@ mod tests {
         v.files[1] = vec![t3, t4, t5];
         v.files[2] = vec![t6, t7];
         v
+    }
+
+    #[test]
+    #[ignore]
+    fn test_version_get_simple() {
+        let v = make_version();
+        type Case<'a> = (&'a [u8], u64, Result<Option<Vec<u8>>>);
+        let cases: &[Case] = &[
+            ("aaa".as_bytes(), 0, Ok(None)),
+            ("aaa".as_bytes(), 1, Ok(Some("val1".as_bytes().to_vec()))),
+            ("aab".as_bytes(), 100, Ok(Some("val2".as_bytes().to_vec()))),
+            ("data".as_bytes(), 100, Ok(Some("val1".as_bytes().to_vec()))),
+            ("dab".as_bytes(), 1, Ok(None)),
+            ("dac".as_bytes(), 100, Ok(None)),
+            ("gba".as_bytes(), 100, Ok(Some("val3".as_bytes().to_vec()))),
+            ("gbb".as_bytes(), 100, Ok(None)),
+        ];
+
+        for c in cases {
+            match v.get(&LookupKey::new(c.0, c.1)) {
+                Ok(Some((val, _))) => assert_eq!(c.2.as_ref().unwrap().as_ref().unwrap(), &val),
+                Ok(None) => assert!(c.2.as_ref().unwrap().as_ref().is_none()),
+                Err(_) => assert!(c.2.is_err()),
+            }
+        }
     }
 
     #[test]
