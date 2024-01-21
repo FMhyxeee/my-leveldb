@@ -513,7 +513,27 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn test_table_cache_use() {
+    fn test_table_approximate_offset() {
+        let (src, size) = build_table(build_data());
+        let opt = Options {
+            block_size: 32,
+            ..Default::default()
+        };
+        let table = Table::new_raw(opt.clone(), wrap_buffer(src), size).unwrap();
+        let mut iter = table.iter();
+        let expected_offsets = [0, 0, 0, 42, 42, 42, 86];
+
+        for (i, (k, _)) in LdbIteratorIter::wrap(&mut iter).enumerate() {
+            assert_eq!(expected_offsets[i], table.approx_offset_of(&k));
+        }
+
+        // Key-past-last returns offset of metaindex block.
+        assert_eq!(132, table.approx_offset_of("{aa".as_bytes()));
+    }
+
+    #[test]
+    #[ignore]
+    fn test_table_block_cache_use() {
         let (src, size) = build_table(build_data());
         let opt = Options {
             block_size: 32,
