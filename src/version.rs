@@ -248,6 +248,8 @@ impl Version {
         }
     }
 
+    /// new_concat_iter returns an itarator that iterates over the files in a level. Note that this
+    /// only really makes sense for levels > 0
     fn new_concat_iter(&self, level: usize) -> VersionIter {
         VersionIter {
             files: self.files[level].clone(),
@@ -256,6 +258,28 @@ impl Version {
             current: None,
             current_ix: 0,
         }
+    }
+
+    /// new_iters returns a set of iterators that can be merged to yield all entries in this
+    /// version
+    fn new_iters(&self) -> Result<Vec<Box<dyn LdbIterator>>> {
+        let mut iters: Vec<Box<dyn LdbIterator>> = vec![];
+        for f in &self.files[0] {
+            iters.push(Box::new(
+                self.table_cache
+                    .borrow_mut()
+                    .get_table(f.borrow().num)?
+                    .iter(),
+            ));
+        }
+
+        for l in 1..NUM_LEVELS {
+            if !self.files[l].is_empty() {
+                iters.push(Box::new(self.new_concat_iter(l)));
+            }
+        }
+
+        Ok(iters)
     }
 }
 
@@ -273,13 +297,20 @@ struct VersionIter {
 
 impl LdbIterator for VersionIter {
     fn advance(&mut self) -> bool {
+        assert!(!self.files.is_empty());
         if let Some(ref mut t) = self.current {
             if t.advance() {
                 return true;
             } else if self.current_ix >= self.files.len() - 1 {
+                // Already on last table; can't advance further.
                 return false;
             }
+
+            // Load next table if current table is exhausted and we have more tables to go through.
+            self.current_ix += 1;
         }
+
+        // Initialize iterator or load next table.
         if let Ok(tbl) = self
             .cache
             .borrow_mut()
@@ -289,7 +320,6 @@ impl LdbIterator for VersionIter {
         } else {
             return false;
         }
-        self.current_ix += 1;
         self.advance()
     }
     fn current(&self, key: &mut Vec<u8>, val: &mut Vec<u8>) -> bool {
@@ -322,7 +352,7 @@ impl LdbIterator for VersionIter {
         self.current_ix = 0;
     }
     fn valid(&self) -> bool {
-        self.current.is_some()
+        self.current.as_ref().map(|t| t.valid()).unwrap_or(false)
     }
     fn prev(&mut self) -> bool {
         if let Some(ref mut t) = self.current {
@@ -337,6 +367,7 @@ impl LdbIterator for VersionIter {
                     // The saved largest key must be in the table.
                     assert!(iter.valid());
                     self.current_ix -= 1;
+                    *t = iter;
                     return true;
                 }
             }
@@ -413,8 +444,15 @@ mod tests {
     use std::path::Path;
 
     use crate::{
-        cmp::DefaultCmp, env::Env, mem_env::MemEnv, options::Options, table_builder::TableBuilder,
-        table_cache::table_name, types::share,
+        cmp::DefaultCmp,
+        env::Env,
+        mem_env::MemEnv,
+        merging_iter::MergingIter,
+        options::Options,
+        table_builder::TableBuilder,
+        table_cache::table_name,
+        test_util::{test_iterator_properties, LdbIteratorIter},
+        types::share,
     };
 
     use super::*;
@@ -518,6 +556,17 @@ mod tests {
             ("gba".as_bytes(), "val3".as_bytes()),
         ];
         let t7 = write_table(&env, f7, 19, 7);
+        // Level 3 (2 * 2 entries, for iterator behavior).
+        let f8: &[(&[u8], &[u8])] = &[
+            ("has".as_bytes(), "val1".as_bytes()),
+            ("hba".as_bytes(), "val2".as_bytes()),
+        ];
+        let t8 = write_table(&env, f8, 22, 8);
+        let f9: &[(&[u8], &[u8])] = &[
+            ("iaa".as_bytes(), "val1".as_bytes()),
+            ("iba".as_bytes(), "val2".as_bytes()),
+        ];
+        let t9 = write_table(&env, f9, 25, 9);
 
         opts.set_env(Box::new(env));
         let cache = TableCache::new("db", opts, 100);
@@ -525,7 +574,49 @@ mod tests {
         v.files[0] = vec![t1, t2];
         v.files[1] = vec![t3, t4, t5];
         v.files[2] = vec![t6, t7];
+        v.files[3] = vec![t8, t9];
         v
+    }
+
+    #[test]
+    #[ignore]
+    fn test_version_concat_iter() {
+        let v = make_version();
+
+        let expected_entries = [0, 9, 6, 4];
+        for (l, _item) in expected_entries.iter().enumerate().take(4).skip(1) {
+            let mut iter = v.new_concat_iter(l);
+            let iter = LdbIteratorIter::wrap(&mut iter);
+            assert_eq!(iter.count(), expected_entries[l]);
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn test_version_concat_iter_properties() {
+        let v = make_version();
+        let iter = v.new_concat_iter(3);
+        test_iterator_properties(iter);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_version_all_iters() {
+        let v = make_version();
+        let iters = v.new_iters().unwrap();
+        let mut opt = Options::default();
+        opt.set_comparator(Box::new(InternalKeyCmp(Rc::new(Box::new(DefaultCmp)))));
+
+        let mut miter = MergingIter::new(opt, iters);
+        assert_eq!(LdbIteratorIter::wrap(&mut miter).count(), 25);
+
+        // Check that all elements are in order.
+        let init = LookupKey::new("000".as_bytes(), MAX_SEQUENCE_NUMBER);
+        let cmp = InternalKeyCmp(Rc::new(Box::new(DefaultCmp)));
+        LdbIteratorIter::wrap(&mut miter).fold(init.internal_key().to_vec(), |b, (k, _)| {
+            assert!(cmp.cmp(&b, &k) == Ordering::Less);
+            k
+        });
     }
 
     #[test]
