@@ -2,7 +2,7 @@
 //! read-through cache, meaning that non-present tables are read from disk and cached before being
 //! returned.
 
-use std::{cell::RefCell, path::Path, rc::Rc};
+use std::{path::Path, rc::Rc};
 
 use integer_encoding::FixedIntWriter;
 
@@ -12,16 +12,17 @@ use crate::{
     key_types::InternalKey,
     options::Options,
     table_reader::Table,
+    types::FileNum,
 };
 
 const DEFAULT_SUFFIX: &str = "ldb";
 
-pub fn table_name(name: &str, num: u64, suff: &str) -> String {
+pub fn table_name(name: &str, num: FileNum, suff: &str) -> String {
     assert!(num > 0);
     format!("{}/{:06}.{}", name, num, suff)
 }
 
-fn filenum_to_key(num: u64) -> CacheKey {
+fn filenum_to_key(num: FileNum) -> CacheKey {
     let mut buf = [0; 16];
     (&mut buf[..]).write_fixedint(num).unwrap();
     buf
@@ -33,8 +34,6 @@ pub struct TableCache {
     opts: Options,
 }
 
-pub type SharedTableCache = Rc<RefCell<TableCache>>;
-
 impl TableCache {
     /// Create a new TableCache for the database name `db`, caching up to `entries` tables.
     pub fn new(db: &str, opt: Options, entries: usize) -> TableCache {
@@ -45,13 +44,17 @@ impl TableCache {
         }
     }
 
-    pub fn get(&mut self, file_num: u64, key: InternalKey) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
+    pub fn get(
+        &mut self,
+        file_num: FileNum,
+        key: InternalKey,
+    ) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
         let tbl = self.get_table(file_num)?;
         Ok(tbl.get(key))
     }
 
     /// Return a table from cache, or open the backing file, then cache and return it.
-    pub fn get_table(&mut self, file_num: u64) -> Result<Table> {
+    pub fn get_table(&mut self, file_num: FileNum) -> Result<Table> {
         let key = filenum_to_key(file_num);
         if let Some(t) = self.cache.get(&key) {
             return Ok(t.clone());
@@ -60,7 +63,7 @@ impl TableCache {
     }
 
     // open a table on the file system and read it.
-    fn open_table(&mut self, file_num: u64) -> Result<Table> {
+    fn open_table(&mut self, file_num: FileNum) -> Result<Table> {
         let name = table_name(&self.dbname, file_num, DEFAULT_SUFFIX);
         let path = Path::new(&name);
         let file = Rc::new(self.opts.env.open_random_access_file(path)?);

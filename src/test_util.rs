@@ -1,7 +1,5 @@
 use std::cmp::Ordering;
 
-use time_test::time_test;
-
 use crate::{
     cmp::{Cmp, DefaultCmp},
     types::{current_key_val, LdbIterator},
@@ -98,7 +96,6 @@ impl<'a, It: LdbIterator> Iterator for LdbIteratorIter<'a, It> {
 /// This shared test takes an iterator with exactly four elements and tests that it fulfills the
 /// generic iterator properties. Every iterator defined in this code base should pass this test.
 pub fn test_iterator_properties<It: LdbIterator>(mut it: It) {
-    time_test!("test_iterator_properties");
     assert!(!it.valid());
     assert!(it.advance());
     assert!(it.valid());
@@ -139,6 +136,7 @@ pub fn test_iterator_properties<It: LdbIterator>(mut it: It) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use time_test::time_test;
 
     #[test]
     fn test_test_util_basic() {

@@ -86,6 +86,9 @@ pub fn current_key_val<It: LdbIterator + ?Sized>(it: &It) -> Option<(Vec<u8>, Ve
     }
 }
 
+/// The unique (sequential) number of a file
+pub type FileNum = u64;
+
 /// Descsribes a file on disk
 #[derive(Clone, Debug, PartialEq)]
 pub struct FileMetaData {
@@ -97,3 +100,5 @@ pub struct FileMetaData {
     pub smallest: Vec<u8>,
     pub largest: Vec<u8>,
 }
+
+pub const NUM_LEVELS: usize = 7;
