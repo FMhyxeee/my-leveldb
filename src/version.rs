@@ -178,7 +178,7 @@ impl Version {
     }
 
     /// overlapping_inputs returns all files that may contain keys between begin and end.
-    fn overlapping_inputs(
+    pub fn overlapping_inputs(
         &self,
         level: usize,
         begin: InternalKey,
@@ -501,7 +501,7 @@ mod tests {
             LookupKey::new(contents[0].0, MAX_SEQUENCE_NUMBER).internal_key(),
             LookupKey::new(contents[contents.len() - 1].0, 0).internal_key(),
         );
-        f.borrow_mut().size = tbl.finish() as u64;
+        f.borrow_mut().size = tbl.finish();
         f
     }
 

@@ -95,7 +95,7 @@ pub struct FileMetaData {
     // default: size/ 16384.
     pub allowed_seeks: isize,
     pub num: u64,
-    pub size: u64,
+    pub size: usize,
     // these are in InternalKey format:
     pub smallest: Vec<u8>,
     pub largest: Vec<u8>,
