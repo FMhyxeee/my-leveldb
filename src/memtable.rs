@@ -3,8 +3,7 @@ use std::rc::Rc;
 
 use crate::{
     cmp::MemtableKeyCmp,
-    error::Status,
-    error::{Result, StatusCode},
+    error::{err, Result, StatusCode},
     key_types::{build_memtable_key, parse_memtable_key, LookupKey, UserKey},
     options::Options,
     skipmap::{SkipMap, SkipMapIter},
@@ -59,11 +58,11 @@ impl MemTable {
                 if tag & 0xff == ValueType::TypeValue as u64 {
                     return Ok(foundkey[valoff..valoff + vallen].to_vec());
                 } else {
-                    return Err(Status::new(StatusCode::NotFound, ""));
+                    return err(StatusCode::NotFound, "");
                 }
             }
         }
-        Err(Status::new(StatusCode::NotFound, ""))
+        err(StatusCode::NotFound, "")
     }
 
     pub fn iter(&self) -> MemtableIterator {

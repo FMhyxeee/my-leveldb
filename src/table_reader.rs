@@ -8,7 +8,7 @@ use crate::{
     cache::{CacheID, CacheKey},
     cmp::InternalKeyCmp,
     env::RandomAccess,
-    error::{Result, Status, StatusCode},
+    error::{err, Result, StatusCode},
     filter::InternalFilterPolicy,
     filter_block::FilterBlockReader,
     key_types::InternalKey,
@@ -106,10 +106,10 @@ impl Table {
             TableBlock::read_block(opt.clone(), file.as_ref().as_ref(), &footer.meta_index)?;
 
         if !indexblock.verify() || !metaindexblock.verify() {
-            return Err(Status::new(
+            return err(
                 StatusCode::InvalidData,
                 "Indexblock/Metaindexblock failed verification",
-            ));
+            );
         }
 
         // Open filter block for reading
@@ -183,10 +183,7 @@ impl Table {
         let b = TableBlock::read_block(self.opt.clone(), self.file.as_ref().as_ref(), location)?;
 
         if !b.verify() {
-            return Err(Status::new(
-                StatusCode::InvalidData,
-                "Data block failed verification",
-            ));
+            return err(StatusCode::InvalidData, "Data block failed verification");
         }
         if let Ok(ref mut _block_cache) = self.opt.block_cache.lock() {
             // inserting a cheap copy (Rc)
