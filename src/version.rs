@@ -12,21 +12,21 @@ use crate::{cmp::Cmp, table_cache::TableCache, types::FileMetaData};
 /// FileMetaHandle is a reference-counted FileMetaData object with interior mutability. This is
 /// necessary to provide a shared metadata container that can be modified while referenced by e.g.
 /// multiple version.
-type FileMetaHandle = Shared<FileMetaData>;
+pub type FileMetaHandle = Shared<FileMetaData>;
 
 /// Contains statistics about seeks occurred in a file.
-struct GetStats {
+pub struct GetStats {
     file: Option<FileMetaHandle>,
     level: usize,
 }
 
-struct Version {
+pub struct Version {
     table_cache: Shared<TableCache>,
     user_cmp: Rc<Box<dyn Cmp>>,
-    files: [Vec<FileMetaHandle>; NUM_LEVELS],
+    pub files: [Vec<FileMetaHandle>; NUM_LEVELS],
 
-    file_to_compact: Option<FileMetaHandle>,
-    file_to_compact_lvl: usize,
+    pub file_to_compact: Option<FileMetaHandle>,
+    pub file_to_compact_lvl: usize,
 }
 
 impl Version {
