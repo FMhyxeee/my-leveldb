@@ -9,12 +9,12 @@ use integer_encoding::{VarIntReader, VarIntWriter};
 use crate::{
     error::{Status, StatusCode},
     key_types::InternalKey,
-    types::{FileMetaData, SequenceNumber},
+    types::{FileMetaData, FileNum, SequenceNumber},
 };
 
 #[derive(PartialEq, Debug, Clone)]
 struct CompactionPointer {
-    level: isize,
+    level: usize,
     // This key is in InternalKye format.
     key: Vec<u8>,
 }
@@ -66,14 +66,14 @@ fn read_length_prefixed<R: Read>(reader: &mut R) -> Result<Vec<u8>, Status> {
 /// Manages changes to the set of managed SSTables and logfiles.
 pub struct VersionEdit {
     comparator: Option<String>,
-    log_number: Option<u64>,
-    prev_log_number: Option<u64>,
-    next_file_number: Option<u64>,
+    log_number: Option<FileNum>,
+    prev_log_number: Option<FileNum>,
+    next_file_number: Option<FileNum>,
     last_seq: Option<SequenceNumber>,
 
     compaction_ptrs: Vec<CompactionPointer>,
-    deleted: HashSet<(isize, u64)>,
-    new_files: Vec<(isize, FileMetaData)>,
+    deleted: HashSet<(usize, FileNum)>,
+    new_files: Vec<(usize, FileMetaData)>,
 }
 
 impl VersionEdit {
@@ -94,11 +94,11 @@ impl VersionEdit {
         *self = VersionEdit::new();
     }
 
-    pub fn add_file(&mut self, level: isize, file: FileMetaData) {
+    pub fn add_file(&mut self, level: usize, file: FileMetaData) {
         self.new_files.push((level, file))
     }
 
-    pub fn delete_file(&mut self, level: isize, file_num: u64) {
+    pub fn delete_file(&mut self, level: usize, file_num: u64) {
         self.deleted.insert((level, file_num));
     }
 
@@ -106,19 +106,19 @@ impl VersionEdit {
         self.comparator = Some(name.to_string())
     }
 
-    pub fn set_log_num(&mut self, num: u64) {
+    pub fn set_log_num(&mut self, num: FileNum) {
         self.log_number = Some(num)
     }
 
-    pub fn set_prev_log_num(&mut self, num: u64) {
+    pub fn set_prev_log_num(&mut self, num: FileNum) {
         self.prev_log_number = Some(num)
     }
 
-    pub fn set_next_file(&mut self, num: u64) {
+    pub fn set_next_file(&mut self, num: FileNum) {
         self.next_file_number = Some(num)
     }
 
-    pub fn set_compact_pointer(&mut self, level: isize, key: InternalKey) {
+    pub fn set_compact_pointer(&mut self, level: usize, key: InternalKey) {
         self.compaction_ptrs.push(CompactionPointer {
             level,
             key: Vec::from(key),
