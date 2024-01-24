@@ -5,8 +5,7 @@ use crate::cmp::InternalKeyCmp;
 use crate::error::Result;
 use crate::key_types::{parse_internal_key, InternalKey, LookupKey, UserKey};
 use crate::table_reader::TableIterator;
-use crate::types::{LdbIterator, Shared, MAX_SEQUENCE_NUMBER};
-use crate::version_set::NUM_LEVELS;
+use crate::types::{LdbIterator, Shared, MAX_SEQUENCE_NUMBER, NUM_LEVELS};
 use crate::{cmp::Cmp, table_cache::TableCache, types::FileMetaData};
 
 /// FileMetaHandle is a reference-counted FileMetaData object with interior mutability. This is
