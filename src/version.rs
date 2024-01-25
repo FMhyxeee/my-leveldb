@@ -439,44 +439,43 @@ fn some_file_overlaps_range(
 }
 
 #[cfg(test)]
-mod tests {
+pub mod testutil {
     use std::path::Path;
 
+    use super::*;
     use crate::{
         cmp::DefaultCmp,
         env::Env,
         mem_env::MemEnv,
-        merging_iter::MergingIter,
         options::Options,
         table_builder::TableBuilder,
         table_cache::table_name,
-        test_util::{test_iterator_properties, LdbIteratorIter},
-        types::share,
+        types::{share, FileNum},
     };
 
-    use super::*;
-
-    use time_test::time_test;
-
-    fn new_file(num: u64, smallest: &[u8], largest: &[u8]) -> FileMetaHandle {
+    pub fn new_file(
+        num: u64,
+        smallest: &[u8],
+        smallestix: u64,
+        largest: &[u8],
+        largestix: u64,
+    ) -> FileMetaHandle {
         share(FileMetaData {
             allowed_seeks: 10,
             size: 163840,
             num,
-            smallest: LookupKey::new(smallest, MAX_SEQUENCE_NUMBER)
-                .internal_key()
-                .to_vec(),
-            largest: LookupKey::new(largest, 0).internal_key().to_vec(),
+            smallest: LookupKey::new(smallest, smallestix).internal_key().to_vec(),
+            largest: LookupKey::new(largest, largestix).internal_key().to_vec(),
         })
     }
 
     /// write_table creates a table with the given number and contents (must be sorted!) in the
     /// memenv. The sequence numbers given to keys start with startseq.
-    fn write_table(
+    pub fn write_table(
         me: &MemEnv,
         contents: &[(&[u8], &[u8])],
         startseq: u64,
-        num: u64,
+        num: FileNum,
     ) -> FileMetaHandle {
         let dst = me
             .open_writable_file(Path::new(&table_name("db", num, "ldb")))
@@ -498,17 +497,21 @@ mod tests {
 
         let f = new_file(
             num,
-            LookupKey::new(contents[0].0, MAX_SEQUENCE_NUMBER).internal_key(),
-            LookupKey::new(contents[contents.len() - 1].0, 0).internal_key(),
+            contents[0].0,
+            startseq,
+            contents[contents.len() - 1].0,
+            startseq + (contents.len() - 1) as u64,
         );
         f.borrow_mut().size = tbl.finish();
         f
     }
 
-    fn make_version() -> Version {
-        time_test!("make_version");
+    pub fn make_version() -> (Version, Options) {
         let mut opts = Options::default();
         let env = MemEnv::new();
+
+        // The different levels overlap in a sophisticated manner to be able to test compactions
+        // and so on.
 
         // Level 0 (overlapping)
         let f1: &[(&[u8], &[u8])] = &[
@@ -539,12 +542,12 @@ mod tests {
         let f5: &[(&[u8], &[u8])] = &[
             ("eaa".as_bytes(), "val1".as_bytes()),
             ("eab".as_bytes(), "val2".as_bytes()),
-            ("eba".as_bytes(), "val3".as_bytes()),
+            ("fab".as_bytes(), "val3".as_bytes()),
         ];
         let t5 = write_table(&env, f5, 13, 5);
         // Level 2
         let f6: &[(&[u8], &[u8])] = &[
-            ("faa".as_bytes(), "val1".as_bytes()),
+            ("cab".as_bytes(), "val1".as_bytes()),
             ("fab".as_bytes(), "val2".as_bytes()),
             ("fba".as_bytes(), "val3".as_bytes()),
         ];
@@ -568,19 +571,42 @@ mod tests {
         let t9 = write_table(&env, f9, 25, 9);
 
         opts.set_env(Box::new(env));
-        let cache = TableCache::new("db", opts, 100);
+        let cache = TableCache::new("db", opts.clone(), 100);
         let mut v = Version::new(share(cache), Rc::new(Box::new(DefaultCmp)));
         v.files[0] = vec![t1, t2];
         v.files[1] = vec![t3, t4, t5];
         v.files[2] = vec![t6, t7];
         v.files[3] = vec![t8, t9];
-        v
+        (v, opts)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{cmp::Ordering, rc::Rc};
+
+    use time_test::time_test;
+
+    use crate::{
+        cmp::{Cmp, DefaultCmp, InternalKeyCmp},
+        error::Result,
+        key_types::LookupKey,
+        merging_iter::MergingIter,
+        options::Options,
+        test_util::{test_iterator_properties, LdbIteratorIter},
+        types::MAX_SEQUENCE_NUMBER,
+        version::{
+            key_is_after_file, key_is_before_file, some_file_overlaps_range,
+            some_file_overlaps_range_disjoint, testutil::new_file,
+        },
+    };
+
+    use super::testutil::make_version;
 
     #[test]
     #[ignore]
     fn test_version_concat_iter() {
-        let v = make_version();
+        let v = make_version().0;
 
         let expected_entries = [0, 9, 6, 4];
         for (l, _item) in expected_entries.iter().enumerate().take(4).skip(1) {
@@ -593,7 +619,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_version_concat_iter_properties() {
-        let v = make_version();
+        let v = make_version().0;
         let iter = v.new_concat_iter(3);
         test_iterator_properties(iter);
     }
@@ -601,7 +627,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_version_all_iters() {
-        let v = make_version();
+        let v = make_version().0;
         let iters = v.new_iters().unwrap();
         let mut opt = Options::default();
         opt.set_comparator(Box::new(InternalKeyCmp(Rc::new(Box::new(DefaultCmp)))));
@@ -621,7 +647,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_version_get_simple() {
-        let v = make_version();
+        let v = make_version().0;
         type Case<'a> = (&'a [u8], u64, Result<Option<Vec<u8>>>);
         let cases: &[Case] = &[
             ("aaa".as_bytes(), 0, Ok(None)),
@@ -648,7 +674,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_version_overlap_in_level() {
-        let v = make_version();
+        let v = make_version().0;
 
         for &(level, (k1, k2), want) in &[
             (0, ("000".as_bytes(), "003".as_bytes()), false),
@@ -669,7 +695,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_version_overlapping_inputs() {
-        let v = make_version();
+        let v = make_version().0;
 
         time_test!("overlapping-inputs");
         {
@@ -713,7 +739,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_version_record_read_sample() {
-        let mut v = make_version();
+        let mut v = make_version().0;
         let k = LookupKey::new("aab".as_bytes(), MAX_SEQUENCE_NUMBER);
         let only_in_one = LookupKey::new("cax".as_bytes(), MAX_SEQUENCE_NUMBER);
 
@@ -731,7 +757,7 @@ mod tests {
     #[test]
     fn test_version_key_ordering() {
         time_test!();
-        let fmh = new_file(1, &[1, 0, 0], &[2, 0, 0]);
+        let fmh = new_file(1, &[1, 0, 0], 0, &[2, 0, 0], 1);
         let cmp = InternalKeyCmp(Rc::new(Box::new(DefaultCmp)));
 
         // Keys before file.
@@ -762,14 +788,14 @@ mod tests {
         time_test!();
 
         let files_disjoint = [
-            new_file(1, &[2, 0, 0], &[3, 0, 0]),
-            new_file(2, &[3, 0, 1], &[4, 0, 0]),
-            new_file(3, &[4, 0, 1], &[5, 0, 0]),
+            new_file(1, &[2, 0, 0], 0, &[3, 0, 0], 1),
+            new_file(2, &[3, 0, 1], 0, &[4, 0, 0], 1),
+            new_file(3, &[4, 0, 1], 0, &[5, 0, 0], 1),
         ];
         let files_joint = [
-            new_file(1, &[2, 0, 0], &[3, 0, 0]),
-            new_file(2, &[2, 5, 0], &[4, 0, 0]),
-            new_file(3, &[3, 5, 1], &[5, 0, 0]),
+            new_file(1, &[2, 0, 0], 0, &[3, 0, 0], 1),
+            new_file(2, &[2, 5, 0], 0, &[4, 0, 0], 1),
+            new_file(3, &[3, 5, 1], 0, &[5, 0, 0], 1),
         ];
         let cmp = InternalKeyCmp(Rc::new(Box::new(DefaultCmp)));
 
