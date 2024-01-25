@@ -8,7 +8,7 @@ use integer_encoding::FixedIntWriter;
 
 use crate::{
     cache::{Cache, CacheKey},
-    error::Result,
+    error::{err, Result, StatusCode},
     key_types::InternalKey,
     options::Options,
     table_reader::Table,
@@ -66,8 +66,12 @@ impl TableCache {
     fn open_table(&mut self, file_num: FileNum) -> Result<Table> {
         let name = table_name(&self.dbname, file_num, DEFAULT_SUFFIX);
         let path = Path::new(&name);
-        let file = Rc::new(self.opts.env.open_random_access_file(path)?);
         let file_size = self.opts.env.size_of(path)?;
+        if file_size == 0 {
+            return err(StatusCode::InvalidData, "file is empty");
+        }
+        let file = Rc::new(self.opts.env.open_random_access_file(path)?);
+
         // No SSTable file name compatibility.
         let table = Table::new(self.opts.clone(), file, file_size)?;
         self.cache.insert(&filenum_to_key(file_num), table.clone());
