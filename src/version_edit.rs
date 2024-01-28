@@ -13,10 +13,10 @@ use crate::{
 };
 
 #[derive(PartialEq, Debug, Clone)]
-struct CompactionPointer {
-    level: usize,
+pub struct CompactionPointer {
+    pub level: usize,
     // This key is in InternalKye format.
-    key: Vec<u8>,
+    pub key: Vec<u8>,
 }
 
 enum EditTag {
@@ -71,9 +71,9 @@ pub struct VersionEdit {
     next_file_number: Option<FileNum>,
     last_seq: Option<SequenceNumber>,
 
-    compaction_ptrs: Vec<CompactionPointer>,
-    deleted: HashSet<(usize, FileNum)>,
-    new_files: Vec<(usize, FileMetaData)>,
+    pub compaction_ptrs: Vec<CompactionPointer>,
+    pub deleted: HashSet<(usize, FileNum)>,
+    pub new_files: Vec<(usize, FileMetaData)>,
 }
 
 impl VersionEdit {
@@ -106,12 +106,16 @@ impl VersionEdit {
         self.comparator = Some(name.to_string())
     }
 
-    pub fn set_log_num(&mut self, num: FileNum) {
+    pub fn set_log_num(&mut self, num: u64) {
         self.log_number = Some(num)
     }
 
-    pub fn set_prev_log_num(&mut self, num: FileNum) {
+    pub fn set_prev_log_num(&mut self, num: u64) {
         self.prev_log_number = Some(num)
+    }
+
+    pub fn set_last_seq(&mut self, num: u64) {
+        self.last_seq = Some(num)
     }
 
     pub fn set_next_file(&mut self, num: FileNum) {

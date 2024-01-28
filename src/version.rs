@@ -29,7 +29,7 @@ pub struct Version {
 }
 
 impl Version {
-    fn new(cache: Shared<TableCache>, ucmp: Rc<Box<dyn Cmp>>) -> Version {
+    pub fn new(cache: Shared<TableCache>, ucmp: Rc<Box<dyn Cmp>>) -> Version {
         Version {
             table_cache: cache,
             user_cmp: ucmp,
