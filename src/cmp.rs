@@ -5,6 +5,8 @@ use crate::{
     types,
 };
 
+type WrappedCmp = Rc<Box<dyn Cmp>>;
+
 /// Comparator trait, supporting types that can be nested (i.e., add additional functionality on)
 /// top of an inner comparator)
 pub trait Cmp {

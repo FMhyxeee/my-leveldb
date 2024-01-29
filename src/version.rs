@@ -256,13 +256,11 @@ impl Version {
     /// new_concat_iter returns an itarator that iterates over the files in a level. Note that this
     /// only really makes sense for levels > 0
     fn new_concat_iter(&self, level: usize) -> VersionIter {
-        VersionIter {
-            files: self.files[level].clone(),
-            cache: self.table_cache.clone(),
-            cmp: InternalKeyCmp(self.user_cmp.clone()),
-            current: None,
-            current_ix: 0,
-        }
+        new_version_iter(
+            self.files[level].clone(),
+            self.table_cache.clone(),
+            self.user_cmp.clone(),
+        )
     }
 
     /// new_iters returns a set of iterators that can be merged to yield all entries in this
@@ -288,8 +286,25 @@ impl Version {
     }
 }
 
-/// VersionIter iterates over all files belonging to a certain level.
-struct VersionIter {
+/// new_version_iter returns an iterator over the entries in the specified ordered list of table
+/// files.
+pub fn new_version_iter(
+    files: Vec<FileMetaHandle>,
+    cache: Shared<TableCache>,
+    ucmp: Rc<Box<dyn Cmp>>,
+) -> VersionIter {
+    VersionIter {
+        files,
+        cache,
+        cmp: InternalKeyCmp(ucmp),
+        current: None,
+        current_ix: 0,
+    }
+}
+
+/// VersionIter iterates over the entries in an ordered list of table files (specifically, for
+/// example, the tables in a level).
+pub struct VersionIter {
     // NOTE: Maybe we need to change this to Rc to support modification of the file set after
     // creation of the iterator. Versions should be immutable, though.
     files: Vec<FileMetaHandle>,
@@ -638,7 +653,7 @@ mod tests {
         let mut opt = Options::default();
         opt.set_comparator(Box::new(InternalKeyCmp(Rc::new(Box::new(DefaultCmp)))));
 
-        let mut miter = MergingIter::new(opt, iters);
+        let mut miter = MergingIter::new(opt.cmp.clone(), iters);
         assert_eq!(LdbIteratorIter::wrap(&mut miter).count(), 25);
 
         // Check that all elements are in order.
