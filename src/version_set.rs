@@ -9,14 +9,17 @@ use crate::key_types::InternalKey;
 use crate::key_types::UserKey;
 use crate::log::LogReader;
 use crate::log::LogWriter;
+use crate::merging_iter::MergingIter;
 use crate::options::Options;
 use crate::table_cache::TableCache;
 use crate::types::parse_file_name;
 use crate::types::share;
 use crate::types::FileNum;
 use crate::types::FileType;
+use crate::types::LdbIterator;
 use crate::types::Shared;
 use crate::types::NUM_LEVELS;
+use crate::version::new_version_iter;
 use crate::version::FileMetaHandle;
 use crate::version::Version;
 use crate::version_edit::VersionEdit;
@@ -394,7 +397,7 @@ impl VersionSet {
 
         // TODO: add log statement about compaction.
 
-        compaction.edit.set_compact_pointer(level, &largest);
+        compaction.edit().set_compact_pointer(level, &largest);
         self.compaction_ptrs[level] = largest;
     }
 
@@ -648,6 +651,39 @@ impl VersionSet {
         }
         false
     }
+
+    /// make_input_iterator returns an iterator over the inputs of a compaction.
+    fn make_input_iterator(&self, c: &Compaction) -> Box<dyn LdbIterator> {
+        let cap = if c.level == 0 { c.num_inputs(0) + 1 } else { 2 };
+        let mut iters: Vec<Box<dyn LdbIterator>> = Vec::with_capacity(cap);
+        for i in 0..2 {
+            if c.num_inputs(i) == 0 {
+                continue;
+            }
+            if c.level + i == 0 {
+                // Add individual iterators for L0 tables.
+                for fi in 0..c.num_inputs(i) {
+                    let f = &c.inputs[i][fi];
+                    if let Ok(tbl) = self.cache.borrow_mut().get_table(f.borrow().num) {
+                        iters.push(Box::new(tbl.iter()));
+                    } else {
+                        // TODO: Log this.
+                        panic!("error opening table");
+                    }
+                }
+            } else {
+                // Create concatenating iterator higher levels.
+                iters.push(Box::new(new_version_iter(
+                    c.inputs[i].clone(),
+                    self.cache.clone(),
+                    self.opt.cmp.clone(),
+                )));
+            }
+        }
+        assert!(iters.len() <= cap);
+        let cmp: Rc<Box<dyn Cmp>> = Rc::new(Box::new(self.cmp.clone()));
+        Box::new(MergingIter::new(cmp, iters))
+    }
 }
 
 struct Builder {
@@ -870,7 +906,8 @@ fn total_size<'a, I: Iterator<Item = &'a FileMetaHandle>>(files: I) -> usize {
 mod tests {
 
     use crate::{
-        cmp::DefaultCmp, key_types::LookupKey, types::FileMetaData, version::testutil::make_version,
+        cmp::DefaultCmp, key_types::LookupKey, test_util::LdbIteratorIter, types::FileMetaData,
+        version::testutil::make_version,
     };
 
     use super::*;
@@ -1128,6 +1165,20 @@ mod tests {
         }
     }
 
+    /// iterator_properties tests that it contains len elements and that they are ordered in
+    /// ascending over by cmp
+    fn iterator_properties<It: LdbIterator>(mut it: It, len: usize, cmp: Rc<Box<dyn Cmp>>) {
+        let mut wr = LdbIteratorIter::wrap(&mut it);
+        let first = wr.next().unwrap();
+        let mut count = 1;
+        wr.fold(first, |(a, _), (b, c)| {
+            assert_eq!(Ordering::Less, cmp.cmp(&a, &b));
+            count += 1;
+            (b, c)
+        });
+        assert_eq!(len, count);
+    }
+
     #[test]
     #[ignore]
     fn test_version_set_compaction() {
@@ -1180,7 +1231,12 @@ mod tests {
                 .unwrap();
             assert_eq!(2, c.inputs[0].len());
             assert_eq!(1, c.inputs[1].len());
-            assert_eq!(1, c.grandparents.unwrap().len());
+            assert_eq!(1, c.grandparents.as_ref().unwrap().len());
+            iterator_properties(
+                vs.make_input_iterator(&c),
+                9,
+                Rc::new(Box::new(vs.cmp.clone())),
+            );
 
             // Expand input range on higher level.
             let from = LookupKey::new("dab".as_bytes(), 1000);
@@ -1190,7 +1246,12 @@ mod tests {
                 .unwrap();
             assert_eq!(3, c.inputs[0].len());
             assert_eq!(1, c.inputs[1].len());
-            assert_eq!(0, c.grandparents.unwrap().len());
+            assert_eq!(0, c.grandparents.as_ref().unwrap().len());
+            iterator_properties(
+                vs.make_input_iterator(&c),
+                12,
+                Rc::new(Box::new(vs.cmp.clone())),
+            );
 
             // is_trivial_move
             let from = LookupKey::new("fab".as_bytes(), 1000);
