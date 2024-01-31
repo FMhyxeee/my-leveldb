@@ -5,7 +5,7 @@ use crate::cmp::InternalKeyCmp;
 use crate::error::Result;
 use crate::key_types::{parse_internal_key, InternalKey, LookupKey, UserKey};
 use crate::table_reader::TableIterator;
-use crate::types::{LdbIterator, Shared, MAX_SEQUENCE_NUMBER, NUM_LEVELS};
+use crate::types::{FileNum, LdbIterator, Shared, MAX_SEQUENCE_NUMBER, NUM_LEVELS};
 use crate::{cmp::Cmp, table_cache::TableCache, types::FileMetaData};
 
 /// FileMetaHandle is a reference-counted FileMetaData object with interior mutability. This is
@@ -119,6 +119,30 @@ impl Version {
         levels
     }
 
+    /// level_summary returns a summary of the distribution of tables and bytes in this version.
+    fn level_summary(&self) -> String {
+        let mut acc = String::with_capacity(256);
+        for level in 0..NUM_LEVELS {
+            let fs = &self.files[level];
+            if fs.is_empty() {
+                continue;
+            }
+            let filedesc: Vec<(FileNum, usize)> = fs
+                .iter()
+                .map(|f| (f.borrow().num, f.borrow().size))
+                .collect();
+            let desc = format!(
+                "level {}: {} files, {} bytes ({:?}); ",
+                level,
+                fs.len(),
+                total_size(fs.iter()),
+                filedesc
+            );
+            acc.push_str(&desc);
+        }
+        acc
+    }
+
     /// record_read_sample returns true if there is a new file to be compacted. It counts the
     /// number of files overlapping a key, and which level contains the first overlap.
     #[allow(unused_assignments)]
@@ -160,6 +184,23 @@ impl Version {
             }
         }
         false
+    }
+
+    /// max_next_level_overlapping returns how many bytes of tables are overlappied in l+1 by
+    /// tables in l, for the maximum case.
+    fn max_next_level_overlapping_bytes(&self) -> usize {
+        let mut max = 0;
+        for lvl in 1..NUM_LEVELS - 1 {
+            for f in &self.files[lvl] {
+                let f = f.borrow();
+                let ols = self.overlapping_inputs(lvl + 1, &f.smallest, &f.largest);
+                let sum = total_size(ols.iter());
+                if sum > max {
+                    max = sum;
+                }
+            }
+        }
+        max
     }
 
     /// overlap_in_level returns true if the specified level's files overlap the range [smallest;
@@ -395,6 +436,11 @@ impl LdbIterator for VersionIter {
         self.reset();
         false
     }
+}
+
+/// total_size returns the sum of sizes of the given files.
+pub fn total_size<'a, I: Iterator<Item = &'a FileMetaHandle>>(files: I) -> usize {
+    files.fold(0, |a, f| a + f.borrow().size)
 }
 
 /// key_is_after_file returns true if the given user key is larger than the largest key in f.
@@ -647,6 +693,13 @@ mod tests {
 
     #[test]
     #[ignore]
+    fn test_version_max_next_level_overlapping() {
+        let v = make_version().0;
+        assert_eq!(218, v.max_next_level_overlapping_bytes());
+    }
+
+    #[test]
+    #[ignore]
     fn test_version_all_iters() {
         let v = make_version().0;
         let iters = v.new_iters().unwrap();
@@ -663,6 +716,16 @@ mod tests {
             assert!(cmp.cmp(&b, &k) == Ordering::Less);
             k
         });
+    }
+
+    #[test]
+    #[ignore = "todo"]
+    fn test_version_summary() {
+        let v = make_version().0;
+        let expected = "level 0: 2 files, 434 bytes ([(1, 216), (2, 218)]); level 1: 3 files, 651 \
+                        bytes ([(3, 218), (4, 216), (5, 217)]); level 2: 2 files, 434 bytes ([(6, \
+                        218), (7, 216)]); level 3: 2 files, 400 bytes ([(8, 200), (9, 200)]); ";
+        assert_eq!(expected, &v.level_summary());
     }
 
     #[test]
