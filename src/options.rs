@@ -1,4 +1,4 @@
-use std::{rc::Rc, sync::Mutex};
+use std::{io, rc::Rc};
 
 use crate::{
     block::Block,
@@ -7,7 +7,8 @@ use crate::{
     disk_env::PosixDiskEnv,
     env::Env,
     filter::{self, BoxedFilterPolicy},
-    types::SequenceNumber,
+    infolog::Logger,
+    types::{share, SequenceNumber, Shared},
 };
 
 const KB: usize = 1 << 10;
@@ -38,14 +39,14 @@ pub fn int_to_compressiontype(i: u32) -> Option<CompressionType> {
 pub struct Options {
     pub cmp: Rc<Box<dyn Cmp>>,
     pub env: Rc<Box<dyn Env>>,
+    pub log: Shared<Logger>,
     pub create_if_missing: bool,
     pub error_if_exists: bool,
     pub paranoid_checks: bool,
-    // pub logger: Logger,
     pub write_buffer_size: usize,
     pub max_open_file: usize,
     pub max_file_size: usize,
-    pub block_cache: Rc<Mutex<Cache<Block>>>,
+    pub block_cache: Shared<Cache<Block>>,
     pub block_size: usize,
     pub block_restart_interval: usize,
     pub compression_type: CompressionType,
@@ -58,6 +59,7 @@ impl Default for Options {
         Self {
             cmp: Rc::new(Box::new(DefaultCmp)),
             env: Rc::new(Box::new(PosixDiskEnv::new())),
+            log: share(Logger(Box::new(io::sink()))),
             create_if_missing: true,
             error_if_exists: false,
             paranoid_checks: false,
@@ -65,9 +67,7 @@ impl Default for Options {
             max_open_file: 1 << 10,
             max_file_size: 2 << 20,
             // 2000 elements by default
-            block_cache: Rc::new(Mutex::new(Cache::new(
-                BLOCK_CACHE_CAPACITY / BLOCK_MAX_SIZE,
-            ))),
+            block_cache: share(Cache::new(BLOCK_CACHE_CAPACITY / BLOCK_MAX_SIZE)),
             block_size: BLOCK_MAX_SIZE,
             block_restart_interval: 16,
             reuse_logs: false,
