@@ -17,13 +17,27 @@ pub trait FilterPolicy {
 /// could not be cloned otherwise).
 pub type BoxedFilterPolicy = Rc<Box<dyn FilterPolicy>>;
 
+impl FilterPolicy for BoxedFilterPolicy {
+    fn name(&self) -> &'static str {
+        (**self).name()
+    }
+
+    fn create_filter(&self, keys: &[&[u8]]) -> Vec<u8> {
+        (**self).create_filter(keys)
+    }
+
+    fn key_may_match(&self, key: &[u8], filter: &[u8]) -> bool {
+        (**self).key_may_match(key, filter)
+    }
+}
+
 /// Used for tables that don't have filter blocks but need a type parameter.
 #[derive(Clone)]
 pub struct NoFilterPolicy;
 
 impl NoFilterPolicy {
-    pub fn new_wrap() -> BoxedFilterPolicy {
-        Rc::new(Box::new(NoFilterPolicy))
+    pub fn new() -> NoFilterPolicy {
+        NoFilterPolicy
     }
 }
 
@@ -53,8 +67,8 @@ pub struct BloomPolicy {
 /// Beware the magic numbers...
 impl BloomPolicy {
     /// Returns a new boxed BloomPolicy.
-    pub fn new_wrap(bits_per_key: u32) -> BoxedFilterPolicy {
-        Rc::new(Box::new(BloomPolicy::new_unwrapped(bits_per_key)))
+    pub fn new(bits_per_key: u32) -> BloomPolicy {
+        BloomPolicy::new_unwrapped(bits_per_key)
     }
 
     /// Returns a new BloomPolicy with the given parameters.
@@ -110,16 +124,14 @@ impl FilterPolicy for BloomPolicy {
 
     fn create_filter(&self, keys: &[&[u8]]) -> Vec<u8> {
         let filter_bits = keys.len() * self.bits_per_key as usize;
-
-        let mut filter = Vec::new();
+        let mut filter: Vec<u8>;
 
         if filter_bits < 64 {
-            // Preallocate, then resize
-            filter.reserve(8 + 1);
-            filter.resize(8, 0u8);
+            filter = Vec::with_capacity(8 + 1);
+            filter.resize(8, 0);
         } else {
             // Preallocate, then resize
-            filter.reserve(1 + ((filter_bits + 7) / 8));
+            filter = Vec::with_capacity(1 + ((filter_bits + 7) / 8));
             filter.resize((filter_bits + 7) / 8, 0);
         }
         let adj_filter_bits = (filter.len() * 8) as u32;
@@ -171,17 +183,17 @@ impl FilterPolicy for BloomPolicy {
 /// A user Key is u8*.
 /// An Internal Key is u8* u8{8} (where the second part encodes a tag and a sequence number).
 #[derive(Clone)]
-pub struct InternalFilterPolicy {
-    internal: BoxedFilterPolicy,
+pub struct InternalFilterPolicy<FP: FilterPolicy> {
+    internal: FP,
 }
 
-impl InternalFilterPolicy {
-    pub fn new_wrap(inner: BoxedFilterPolicy) -> BoxedFilterPolicy {
-        Rc::new(Box::new(InternalFilterPolicy { internal: inner }))
+impl<FP: FilterPolicy> InternalFilterPolicy<FP> {
+    pub fn new(inner: FP) -> InternalFilterPolicy<FP> {
+        InternalFilterPolicy { internal: inner }
     }
 }
 
-impl FilterPolicy for InternalFilterPolicy {
+impl<FP: FilterPolicy> FilterPolicy for InternalFilterPolicy<FP> {
     fn name(&self) -> &'static str {
         self.internal.name()
     }
@@ -222,7 +234,7 @@ mod tests {
 
     /// Creates a filter using the keys from input_data().
     fn create_filter() -> Vec<u8> {
-        let fpol = BloomPolicy::new_wrap(_BITS_PER_KEY);
+        let fpol = BloomPolicy::new(_BITS_PER_KEY);
         let filter = fpol.create_filter(&input_data());
 
         assert_eq!(filter, vec![194, 148, 129, 140, 192, 196, 132, 164, 8]);
@@ -231,7 +243,9 @@ mod tests {
 
     /// Creates a filter using the keys from input_data() but converted to InternalKey format.
     fn create_internalkey_filter() -> Vec<u8> {
-        let fpol = InternalFilterPolicy::new_wrap(BloomPolicy::new_wrap(_BITS_PER_KEY));
+        let fpol = Rc::new(Box::new(InternalFilterPolicy::new(BloomPolicy::new(
+            _BITS_PER_KEY,
+        ))));
         let input: Vec<Vec<u8>> = input_data()
             .into_iter()
             .map(|k| LookupKey::new(k, 123).internal_key().to_vec())
@@ -244,7 +258,7 @@ mod tests {
     #[test]
     fn test_filter_bloom() {
         let f = create_filter();
-        let fp = BloomPolicy::new_wrap(_BITS_PER_KEY);
+        let fp = BloomPolicy::new(_BITS_PER_KEY);
 
         for k in input_data().iter() {
             assert!(fp.key_may_match(k, &f));

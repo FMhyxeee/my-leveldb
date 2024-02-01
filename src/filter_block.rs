@@ -183,7 +183,7 @@ mod tests {
 
     fn produce_filter_block() -> Vec<u8> {
         let keys = get_keys();
-        let mut bld = FilterBlockBuilder::new(BloomPolicy::new_wrap(32));
+        let mut bld = FilterBlockBuilder::new(Rc::new(Box::new(BloomPolicy::new(32))));
 
         bld.start_block(0);
 
@@ -219,7 +219,7 @@ mod tests {
     #[test]
     fn test_filter_block_build_read() {
         let result = produce_filter_block();
-        let reader = FilterBlockReader::new_owned(BloomPolicy::new_wrap(32), result);
+        let reader = FilterBlockReader::new_owned(Rc::new(Box::new(BloomPolicy::new(32))), result);
 
         assert_eq!(
             reader.offset_of(get_filter_index(5121, FILTER_BASE_LOG2)),

@@ -6,7 +6,7 @@ use crate::{
     cmp::{Cmp, DefaultCmp},
     disk_env::PosixDiskEnv,
     env::Env,
-    filter::{BloomPolicy, BoxedFilterPolicy},
+    filter::{self, BoxedFilterPolicy},
     types::SequenceNumber,
 };
 
@@ -72,7 +72,7 @@ impl Default for Options {
             block_restart_interval: 16,
             reuse_logs: false,
             compression_type: CompressionType::CompressionNone,
-            filter_policy: BloomPolicy::new_wrap(DEFAULT_BITS_PER_KEY),
+            filter_policy: Rc::new(Box::new(filter::BloomPolicy::new(DEFAULT_BITS_PER_KEY))),
         }
     }
 }

@@ -36,6 +36,8 @@ pub struct TableCache {
 
 impl TableCache {
     /// Create a new TableCache for the database name `db`, caching up to `entries` tables.
+    ///
+    /// opt.cmp should be the user-supplied comparator.
     pub fn new(db: &str, opt: Options, entries: usize) -> TableCache {
         TableCache {
             dbname: String::from(db),
