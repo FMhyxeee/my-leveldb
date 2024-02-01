@@ -157,6 +157,8 @@ impl Table {
         Ok(t)
     }
 
+    /// block_cache_handle creates a CacheKey for a block with a given offset to be used in the
+    /// block cache.
     fn block_cache_handle(&self, block_off: usize) -> CacheKey {
         let mut dst = [0; 2 * 8];
         (&mut dst[..8])

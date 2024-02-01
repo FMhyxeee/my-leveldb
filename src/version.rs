@@ -514,7 +514,7 @@ pub mod testutil {
         cmp::DefaultCmp,
         env::Env,
         mem_env::MemEnv,
-        options::Options,
+        options::{self, Options},
         table_builder::TableBuilder,
         table_cache::table_name,
         types::{share, FileNum},
@@ -556,7 +556,7 @@ pub mod testutil {
             })
             .collect();
 
-        let mut tbl = TableBuilder::new(Options::default(), dst);
+        let mut tbl = TableBuilder::new(options::for_test(), dst);
         for i in 0..contents.len() {
             tbl.add(&keys[i], contents[i].1);
             seq += 1;
@@ -574,7 +574,7 @@ pub mod testutil {
     }
 
     pub fn make_version() -> (Version, Options) {
-        let mut opts = Options::default();
+        let mut opts = options::for_test();
         let env = MemEnv::new();
 
         // The different levels overlap in a sophisticated manner to be able to test compactions
@@ -659,7 +659,7 @@ mod tests {
         error::Result,
         key_types::LookupKey,
         merging_iter::MergingIter,
-        options::Options,
+        options,
         test_util::{test_iterator_properties, LdbIteratorIter},
         types::MAX_SEQUENCE_NUMBER,
         version::{
@@ -703,7 +703,7 @@ mod tests {
     fn test_version_all_iters() {
         let v = make_version().0;
         let iters = v.new_iters().unwrap();
-        let mut opt = Options::default();
+        let mut opt = options::for_test();
         opt.set_comparator(Box::new(InternalKeyCmp(Rc::new(Box::new(DefaultCmp)))));
 
         let mut miter = MergingIter::new(opt.cmp.clone(), iters);

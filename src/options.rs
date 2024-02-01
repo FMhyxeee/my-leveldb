@@ -7,7 +7,7 @@ use crate::{
     disk_env::PosixDiskEnv,
     env::Env,
     filter::{self, BoxedFilterPolicy},
-    infolog::Logger,
+    infolog::{self, Logger},
     types::{share, SequenceNumber, Shared},
 };
 
@@ -74,6 +74,13 @@ impl Default for Options {
             compression_type: CompressionType::CompressionNone,
             filter_policy: Rc::new(Box::new(filter::BloomPolicy::new(DEFAULT_BITS_PER_KEY))),
         }
+    }
+}
+
+pub fn for_test() -> Options {
+    Options {
+        log: share(infolog::stdout()),
+        ..Default::default()
     }
 }
 
