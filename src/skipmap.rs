@@ -7,7 +7,10 @@ use std::{
 
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
-use crate::{cmp::MemtableKeyCmp, options::Options, types::LdbIterator};
+use crate::{
+    cmp::{Cmp, MemtableKeyCmp},
+    types::LdbIterator,
+};
 
 const MAX_HEIGHT: usize = 12;
 const BRANCHING_FACTOR: u32 = 4;
@@ -31,7 +34,7 @@ pub struct InnerSkipMap {
     len: usize,
     // approximation of memory used.
     approx_mem: usize,
-    opt: Options,
+    cmp: Rc<Box<dyn Cmp>>,
 }
 
 pub struct SkipMap {
@@ -40,13 +43,12 @@ pub struct SkipMap {
 
 impl SkipMap {
     /// Returns a SkipMap that wraps the comparator from opt inside a MemtableKeyCmp
-    pub fn new_memtable_map(mut opt: Options) -> SkipMap {
-        opt.cmp = Rc::new(Box::new(MemtableKeyCmp(opt.cmp.clone())));
-        SkipMap::new(opt)
+    pub fn new_memtable_map(cmp: Rc<Box<dyn Cmp>>) -> SkipMap {
+        SkipMap::new(Rc::new(Box::new(MemtableKeyCmp(cmp))))
     }
 
     /// Returns a SkipMap that uses the comparator from opt
-    pub fn new(opt: Options) -> SkipMap {
+    pub fn new(cmp: Rc<Box<dyn Cmp>>) -> SkipMap {
         let mut s = Vec::new();
         s.resize(MAX_HEIGHT, None);
 
@@ -61,7 +63,7 @@ impl SkipMap {
                 rand: StdRng::from_entropy(),
                 len: 0,
                 approx_mem: size_of::<Self>() + MAX_HEIGHT * size_of::<Option<*mut Node>>(),
-                opt,
+                cmp,
             })),
         }
     }
@@ -114,7 +116,7 @@ impl InnerSkipMap {
         loop {
             unsafe {
                 if let Some(next) = (*current).skips[level] {
-                    let ord = self.opt.cmp.cmp((*next).key.as_slice(), key);
+                    let ord = self.cmp.cmp((*next).key.as_slice(), key);
 
                     match ord {
                         Ordering::Less => {
@@ -137,7 +139,7 @@ impl InnerSkipMap {
             level -= 1;
         }
         unsafe {
-            if current.is_null() || self.opt.cmp.cmp(&(*current).key, key) == Ordering::Less {
+            if current.is_null() || self.cmp.cmp(&(*current).key, key) == Ordering::Less {
                 None
             } else {
                 Some(&(*current))
@@ -155,7 +157,7 @@ impl InnerSkipMap {
         loop {
             unsafe {
                 if let Some(next) = (*current).skips[level] {
-                    let ord = self.opt.cmp.cmp((*next).key.as_slice(), key);
+                    let ord = self.cmp.cmp((*next).key.as_slice(), key);
 
                     if ord == Ordering::Less {
                         current = next;
@@ -173,7 +175,7 @@ impl InnerSkipMap {
         unsafe {
             if current.is_null()
                 || (*current).key.is_empty()
-                || self.opt.cmp.cmp(&(*current).key, key) != Ordering::Less
+                || self.cmp.cmp(&(*current).key, key) != Ordering::Less
             {
                 None
             } else {
@@ -200,7 +202,7 @@ impl InnerSkipMap {
             unsafe {
                 if let Some(next) = (*current).skips[level] {
                     // If the wanted position is after the current node
-                    let ord = self.opt.cmp.cmp(&(*next).key, &key);
+                    let ord = self.cmp.cmp(&(*next).key, &key);
 
                     assert!(ord != Ordering::Equal, "No duplicates allowed");
 
@@ -371,7 +373,7 @@ pub mod tests {
     use super::*;
 
     pub fn make_skipmap() -> SkipMap {
-        let mut skm = SkipMap::new(options::for_test());
+        let mut skm = SkipMap::new(options::for_test().cmp);
         let keys = vec![
             "aba", "abb", "abc", "abd", "abe", "abf", "abg", "abh", "abi", "abj", "abk", "abl",
             "abm", "abn", "abo", "abp", "abq", "abr", "abs", "abt", "abu", "abv", "abw", "abx",
@@ -480,7 +482,7 @@ pub mod tests {
 
     #[test]
     fn test_skipmap_iterator_0() {
-        let skm = SkipMap::new(options::for_test());
+        let skm = SkipMap::new(options::for_test().cmp);
         let mut i = 0;
 
         for (_, _) in LdbIteratorIter::wrap(&mut skm.iter()) {
@@ -545,7 +547,7 @@ pub mod tests {
 
     #[test]
     fn test_skipmap_behavior() {
-        let mut skm = SkipMap::new(options::for_test());
+        let mut skm = SkipMap::new(options::for_test().cmp);
         let keys = vec!["aba", "abb", "abc", "abd"];
         for k in keys {
             skm.insert(k.as_bytes().to_vec(), "def".as_bytes().to_vec());

@@ -2,10 +2,9 @@ use integer_encoding::FixedInt;
 use std::rc::Rc;
 
 use crate::{
-    cmp::MemtableKeyCmp,
+    cmp::{Cmp, MemtableKeyCmp},
     error::{err, Result, StatusCode},
     key_types::{build_memtable_key, parse_memtable_key, LookupKey, UserKey},
-    options::Options,
     skipmap::{SkipMap, SkipMapIter},
     types::{current_key_val, LdbIterator, SequenceNumber, ValueType},
 };
@@ -14,24 +13,21 @@ use crate::{
 /// MemTable uses MemtablKeys internally, that is, it stores key and value in the [Skipmap] key.
 pub struct MemTable {
     map: SkipMap,
-    opt: Options,
+    cmp: Rc<Box<dyn Cmp>>,
 }
 
 impl MemTable {
-    /// Returns a new MemTable
+    /// Returns a new MemTable.
     /// This wraps opt.cmp inside a MemtableKey-specific comparator.
-    pub fn new(mut opt: Options) -> Self {
-        opt.cmp = Rc::new(Box::new(MemtableKeyCmp(opt.cmp)));
-        MemTable::new_raw(opt)
+    pub fn new(cmp: Rc<Box<dyn Cmp>>) -> MemTable {
+        MemTable::new_raw(Rc::new(Box::new(MemtableKeyCmp(cmp))))
     }
 
     /// Doesn't wrap the comparator in a MemtableKeyCmp.
-    fn new_raw(opt: Options) -> MemTable {
-        // Not using SkipMap::new_memtable_map(), as opt.cmp will already be wrapped by
-        // MemTable::new()
+    fn new_raw(cmp: Rc<Box<dyn Cmp>>) -> MemTable {
         MemTable {
-            map: SkipMap::new(opt.clone()),
-            opt,
+            map: SkipMap::new(cmp.clone()),
+            cmp,
         }
     }
 
@@ -193,7 +189,7 @@ mod tests {
     }
 
     fn get_memtable() -> MemTable {
-        let mut mt = MemTable::new(options::for_test());
+        let mut mt = MemTable::new(options::for_test().cmp);
         let entries = [
             (115, "abc", "122"),
             (120, "abc", "123"),
@@ -216,7 +212,7 @@ mod tests {
 
     #[test]
     fn test_memtable_add() {
-        let mut mt = MemTable::new_raw(options::for_test());
+        let mut mt = MemTable::new_raw(options::for_test().cmp);
         mt.add(
             123,
             ValueType::TypeValue,
@@ -367,7 +363,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_memtable_iterator_behavior() {
-        let mut mt = MemTable::new(options::for_test());
+        let mut mt = MemTable::new(options::for_test().cmp);
         let entries = [
             (115, "abc", "122"),
             (120, "abc", "123"),
