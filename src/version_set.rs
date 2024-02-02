@@ -151,7 +151,6 @@ pub struct VersionSet {
     pub manifest_num: u64,
     pub last_seq: u64,
     pub log_num: u64,
-    pub prev_log_num: u64,
 
     // TODO: Remove this.
     versions: Vec<Shared<Version>>,
@@ -176,7 +175,6 @@ impl VersionSet {
             manifest_num: 0,
             last_seq: 0,
             log_num: 0,
-            prev_log_num: 0,
 
             versions: vec![v.clone()],
 
@@ -495,9 +493,6 @@ impl VersionSet {
             assert!(edit.log_number.unwrap() >= self.log_num);
             assert!(edit.log_number.unwrap() < self.next_file_num);
         }
-        if edit.prev_log_number.is_none() {
-            edit.set_prev_log_num(self.prev_log_num);
-        }
         edit.set_next_file(self.next_file_num);
         edit.set_last_seq(self.last_seq);
 
@@ -528,7 +523,6 @@ impl VersionSet {
         self.add_version(v);
         // log_number was set above.
         self.log_num = edit.log_number.unwrap();
-        self.prev_log_num = edit.prev_log_number.unwrap();
 
         // TODO: Roll back written files if something went wrong.
         Ok(())
@@ -603,7 +597,6 @@ impl VersionSet {
             );
 
             let mut log_number = None;
-            let mut prev_log_number = None;
             let mut next_file_number = None;
             let mut last_seq = None;
 
@@ -616,9 +609,6 @@ impl VersionSet {
                 builder.apply(&edit, &mut self.compaction_ptrs);
                 if let Some(ln) = edit.log_number {
                     log_number = Some(ln);
-                }
-                if let Some(pln) = edit.prev_log_number {
-                    prev_log_number = Some(pln);
                 }
                 if let Some(nfn) = edit.next_file_number {
                     next_file_number = Some(nfn);
@@ -652,14 +642,6 @@ impl VersionSet {
                     StatusCode::Corruption,
                     "no last-sequence entry in descriptor",
                 );
-            }
-
-            if let Some(pln) = prev_log_number {
-                self.prev_log_num = pln + 1;
-                self.mark_file_number_used(pln + 1);
-            } else {
-                self.prev_log_num = 0;
-                self.mark_file_number_used(1);
             }
         }
 
@@ -1122,7 +1104,6 @@ mod tests {
         // Simulate compaction by adding a file.
         {
             let mut ve = VersionEdit::new();
-            ve.set_prev_log_num(1);
             ve.set_log_num(11);
 
             let fmd = FileMetaData {
@@ -1146,7 +1127,6 @@ mod tests {
             assert_eq!(22, vs.next_file_num);
             assert_eq!(30, vs.last_seq);
             // the following fields are touched by log_and_apply.
-            assert_eq!(1, vs.prev_log_num);
             assert_eq!(11, vs.log_num);
 
             assert_eq!(3, vs.versions.len());
