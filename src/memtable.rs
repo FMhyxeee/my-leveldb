@@ -31,6 +31,10 @@ impl MemTable {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
     pub fn approx_num_usage(&self) -> usize {
         self.map.approx_memory()
     }
