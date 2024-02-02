@@ -558,7 +558,7 @@ pub mod testutil {
 
         let mut tbl = TableBuilder::new(options::for_test(), dst);
         for i in 0..contents.len() {
-            tbl.add(&keys[i], contents[i].1);
+            tbl.add(&keys[i], contents[i].1).unwrap();
             seq += 1;
         }
 
@@ -569,7 +569,7 @@ pub mod testutil {
             contents[contents.len() - 1].0,
             startseq + (contents.len() - 1) as u64,
         );
-        f.borrow_mut().size = tbl.finish();
+        f.borrow_mut().size = tbl.finish().unwrap();
         f
     }
 

@@ -455,10 +455,10 @@ mod tests {
             let mut b = TableBuilder::new(opt, &mut d);
 
             for &(k, v) in data.iter() {
-                b.add(k.as_bytes(), v.as_bytes());
+                b.add(k.as_bytes(), v.as_bytes()).unwrap();
             }
 
-            b.finish();
+            b.finish().unwrap();
         }
 
         let size = d.len();
@@ -491,10 +491,10 @@ mod tests {
             let mut b = TableBuilder::new(opt, &mut d);
 
             for (k, v) in data.iter() {
-                b.add(k.as_slice(), v.as_bytes());
+                b.add(k.as_slice(), v.as_bytes()).unwrap();
             }
 
-            b.finish();
+            b.finish().unwrap();
         }
 
         let size = d.len();

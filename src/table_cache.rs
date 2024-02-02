@@ -118,9 +118,9 @@ mod tests {
         ];
 
         for &(k, v) in data.iter() {
-            b.add(k.as_bytes(), v.as_bytes());
+            b.add(k.as_bytes(), v.as_bytes()).unwrap();
         }
-        b.finish();
+        b.finish().unwrap();
     }
 
     #[test]
