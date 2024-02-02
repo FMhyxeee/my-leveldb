@@ -5,7 +5,7 @@ use crate::cmp::InternalKeyCmp;
 use crate::error::Result;
 use crate::key_types::{parse_internal_key, InternalKey, LookupKey, UserKey};
 use crate::table_reader::TableIterator;
-use crate::types::{FileNum, LdbIterator, Shared, MAX_SEQUENCE_NUMBER, NUM_LEVELS};
+use crate::types::{FileNum, LdbIterator, Shared, ValueType, MAX_SEQUENCE_NUMBER, NUM_LEVELS};
 use crate::{cmp::Cmp, table_cache::TableCache, types::FileMetaData};
 
 /// FileMetaHandle is a reference-counted FileMetaData object with interior mutability. This is
@@ -141,6 +141,36 @@ impl Version {
             acc.push_str(&desc);
         }
         acc
+    }
+
+    pub fn pick_memtable_output_level(&self, min: UserKey, max: UserKey) -> usize {
+        let mut level = 0;
+        if !self.overlap_in_level(0, &min, &max) {
+            // Go to next level as long as there is no overlap in that level and a limited overlap
+            // in the next-higher level.
+            let start = LookupKey::new(min, MAX_SEQUENCE_NUMBER);
+            let limit = LookupKey::new_full(max, 0, ValueType::TypeDeletion);
+
+            const MAX_MEM_COMPACT_LEVEL: usize = 2;
+            while level < MAX_MEM_COMPACT_LEVEL {
+                if self.overlap_in_level(level + 1, &min, &max) {
+                    break;
+                }
+                if level + 2 < NUM_LEVELS {
+                    let overlaps = self.overlapping_inputs(
+                        level + 2,
+                        start.internal_key(),
+                        limit.internal_key(),
+                    );
+                    let size = total_size(overlaps.iter());
+                    if size > 10 * (2 << 20) {
+                        break;
+                    }
+                }
+                level += 1;
+            }
+        }
+        level
     }
 
     /// record_read_sample returns true if there is a new file to be compacted. It counts the
@@ -773,6 +803,22 @@ mod tests {
             } else {
                 assert!(!v.overlap_in_level(level, &k1, &k2));
             }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn test_version_pick_memtable_output_level() {
+        let v = make_version().0;
+
+        for c in [
+            ("000".as_bytes(), "abc".as_bytes(), 0),
+            ("gab".as_bytes(), "hhh".as_bytes(), 1),
+            ("000".as_bytes(), "111".as_bytes(), 2),
+        ]
+        .iter()
+        {
+            assert_eq!(c.2, v.pick_memtable_output_level(c.0, c.1));
         }
     }
 
