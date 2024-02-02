@@ -246,6 +246,7 @@ impl<Dst: Write> TableBuilder<Dst> {
         footer.encode(&mut buf);
 
         self.offset += self.dst.write(&buf[..])?;
+        self.dst.flush()?;
         Ok(self.offset)
     }
 }
