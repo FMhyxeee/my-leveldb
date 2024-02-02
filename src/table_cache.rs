@@ -15,11 +15,9 @@ use crate::{
     types::FileNum,
 };
 
-const DEFAULT_SUFFIX: &str = "ldb";
-
-pub fn table_name(name: &str, num: FileNum, suff: &str) -> String {
+pub fn table_file_name(name: &str, num: FileNum) -> String {
     assert!(num > 0);
-    format!("{}/{:06}.{}", name, num, suff)
+    format!("{}/{:06}.ldb", name, num)
 }
 
 fn filenum_to_key(num: FileNum) -> CacheKey {
@@ -66,7 +64,7 @@ impl TableCache {
 
     // open a table on the file system and read it.
     fn open_table(&mut self, file_num: FileNum) -> Result<Table> {
-        let name = table_name(&self.dbname, file_num, DEFAULT_SUFFIX);
+        let name = table_file_name(&self.dbname, file_num);
         let path = Path::new(&name);
         let file_size = self.opts.env.size_of(path)?;
         if file_size == 0 {
@@ -91,8 +89,8 @@ mod tests {
 
     #[test]
     fn test_table_name() {
-        assert_eq!("abc/000122.ldb", table_name("abc", 122, "ldb"));
-        assert_eq!("abc/1234567.ldb", table_name("abc", 1234567, "ldb"));
+        assert_eq!("abc/000122.ldb", table_file_name("abc", 122));
+        assert_eq!("abc/1234567.ldb", table_file_name("abc", 1234567));
     }
 
     fn make_key(a: u8, b: u8, c: u8) -> CacheKey {
@@ -131,7 +129,7 @@ mod tests {
         let mut opt = options::for_test();
         opt.set_env(Box::new(MemEnv::new()));
         let dbname = "testdb1";
-        let tablename = table_name(dbname, 123, DEFAULT_SUFFIX);
+        let tablename = table_file_name(dbname, 123);
         let tblpath = Path::new(&tablename);
 
         write_table_to(opt.clone(), tblpath);

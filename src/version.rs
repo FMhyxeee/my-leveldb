@@ -546,7 +546,7 @@ pub mod testutil {
         mem_env::MemEnv,
         options::{self, Options},
         table_builder::TableBuilder,
-        table_cache::table_name,
+        table_cache::table_file_name,
         types::{share, FileNum},
     };
 
@@ -575,7 +575,7 @@ pub mod testutil {
         num: FileNum,
     ) -> FileMetaHandle {
         let dst = me
-            .open_writable_file(Path::new(&table_name("db", num, "ldb")))
+            .open_writable_file(Path::new(&table_file_name("db", num)))
             .unwrap();
         let mut seq = startseq;
         let keys: Vec<Vec<u8>> = contents
