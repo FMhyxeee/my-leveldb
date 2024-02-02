@@ -83,7 +83,9 @@ impl TableCache {
 
 #[cfg(test)]
 mod tests {
-    use crate::{mem_env::MemEnv, table_builder::TableBuilder, test_util::LdbIteratorIter};
+    use crate::{
+        mem_env::MemEnv, options, table_builder::TableBuilder, test_util::LdbIteratorIter,
+    };
 
     use super::*;
 
@@ -126,7 +128,7 @@ mod tests {
     fn test_table_cache() {
         // Tests that a table can be written to a MemFS file, read back by the table cache and
         // parsed/iterated by the table reader.
-        let mut opt = Options::default();
+        let mut opt = options::for_test();
         opt.set_env(Box::new(MemEnv::new()));
         let dbname = "testdb1";
         let tablename = table_name(dbname, 123, DEFAULT_SUFFIX);

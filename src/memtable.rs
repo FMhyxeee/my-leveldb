@@ -175,6 +175,7 @@ mod tests {
 
     use crate::{
         key_types::parse_tag,
+        options,
         test_util::{test_iterator_properties, LdbIteratorIter},
     };
 
@@ -192,7 +193,7 @@ mod tests {
     }
 
     fn get_memtable() -> MemTable {
-        let mut mt = MemTable::new(Options::default());
+        let mut mt = MemTable::new(options::for_test());
         let entries = [
             (115, "abc", "122"),
             (120, "abc", "123"),
@@ -215,7 +216,7 @@ mod tests {
 
     #[test]
     fn test_memtable_add() {
-        let mut mt = MemTable::new_raw(Options::default());
+        let mut mt = MemTable::new_raw(options::for_test());
         mt.add(
             123,
             ValueType::TypeValue,
@@ -366,7 +367,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_memtable_iterator_behavior() {
-        let mut mt = MemTable::new(Options::default());
+        let mut mt = MemTable::new(options::for_test());
         let entries = [
             (115, "abc", "122"),
             (120, "abc", "123"),

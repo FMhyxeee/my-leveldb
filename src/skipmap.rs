@@ -363,6 +363,7 @@ pub mod tests {
     use time_test::time_test;
 
     use crate::{
+        options,
         test_util::{test_iterator_properties, LdbIteratorIter},
         types::*,
     };
@@ -370,7 +371,7 @@ pub mod tests {
     use super::*;
 
     pub fn make_skipmap() -> SkipMap {
-        let mut skm = SkipMap::new(Options::default());
+        let mut skm = SkipMap::new(options::for_test());
         let keys = vec![
             "aba", "abb", "abc", "abd", "abe", "abf", "abg", "abh", "abi", "abj", "abk", "abl",
             "abm", "abn", "abo", "abp", "abq", "abr", "abs", "abt", "abu", "abv", "abw", "abx",
@@ -479,7 +480,7 @@ pub mod tests {
 
     #[test]
     fn test_skipmap_iterator_0() {
-        let skm = SkipMap::new(Options::default());
+        let skm = SkipMap::new(options::for_test());
         let mut i = 0;
 
         for (_, _) in LdbIteratorIter::wrap(&mut skm.iter()) {
@@ -544,7 +545,7 @@ pub mod tests {
 
     #[test]
     fn test_skipmap_behavior() {
-        let mut skm = SkipMap::new(Options::default());
+        let mut skm = SkipMap::new(options::for_test());
         let keys = vec!["aba", "abb", "abc", "abd"];
         for k in keys {
             skm.insert(k.as_bytes().to_vec(), "def".as_bytes().to_vec());
