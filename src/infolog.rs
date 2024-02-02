@@ -2,8 +2,8 @@ use std::io::{self, Write};
 
 pub struct Logger(pub Box<dyn Write>);
 
-pub fn stdout() -> Logger {
-    Logger(Box::new(io::stdout()))
+pub fn stderr() -> Logger {
+    Logger(Box::new(io::stderr()))
 }
 
 #[macro_export]
