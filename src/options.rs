@@ -8,6 +8,7 @@ use crate::{
     env::Env,
     filter::{self, BoxedFilterPolicy},
     infolog::{self, Logger},
+    mem_env::MemEnv,
     types::{share, SequenceNumber, Shared},
 };
 
@@ -79,7 +80,9 @@ impl Default for Options {
 
 pub fn for_test() -> Options {
     Options {
+        env: Rc::new(Box::new(MemEnv::new())),
         log: share(infolog::stderr()),
+
         ..Default::default()
     }
 }

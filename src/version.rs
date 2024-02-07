@@ -543,7 +543,6 @@ pub mod testutil {
     use crate::{
         cmp::DefaultCmp,
         env::Env,
-        mem_env::MemEnv,
         options::{self, Options},
         table_builder::TableBuilder,
         table_cache::table_file_name,
@@ -568,8 +567,9 @@ pub mod testutil {
 
     /// write_table creates a table with the given number and contents (must be sorted!) in the
     /// memenv. The sequence numbers given to keys start with startseq.
+    #[allow(clippy::borrowed_box)]
     pub fn write_table(
-        me: &MemEnv,
+        me: &Box<dyn Env>,
         contents: &[(&[u8], &[u8])],
         startseq: u64,
         num: FileNum,
@@ -604,8 +604,8 @@ pub mod testutil {
     }
 
     pub fn make_version() -> (Version, Options) {
-        let mut opts = options::for_test();
-        let env = MemEnv::new();
+        let opts = options::for_test();
+        let env = opts.env.clone();
 
         // The different levels overlap in a sophisticated manner to be able to test compactions
         // and so on.
@@ -666,8 +666,6 @@ pub mod testutil {
             ("iba".as_bytes(), "val2".as_bytes()),
         ];
         let t9 = write_table(&env, f9, 25, 9);
-
-        opts.set_env(Box::new(env));
         let cache = TableCache::new("db", opts.clone(), 100);
         let mut v = Version::new(share(cache), Rc::new(Box::new(DefaultCmp)));
         v.files[0] = vec![t1, t2];
