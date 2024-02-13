@@ -12,6 +12,7 @@ mod filter;
 mod filter_block;
 #[macro_use]
 mod infolog;
+mod db_impl;
 mod key_types;
 mod log;
 mod mem_env;

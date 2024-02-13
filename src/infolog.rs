@@ -7,9 +7,10 @@ pub fn stderr() -> Logger {
 }
 
 #[macro_export]
+#[allow(clippy::unused_io_amount)]
 macro_rules! log {
-    ($l:expr) => ($l.borrow_mut().0.write("\n".as_bytes()).is_ok());
-    ($l:expr, $fmt:expr) => ($l.borrow_mut().0.write(concat!($fmt, "\n").as_bytes()).is_ok());
+    ($l:expr) => ($l.borrow_mut().0.write("\n".as_bytes()).unwrap());
+    ($l:expr, $fmt:expr) => ($l.borrow_mut().0.write(concat!($fmt, "\n").as_bytes()).unwrap());
     ($l:expr, $fmt:expr, $($arg:tt)*) => (
         $l.borrow_mut().0.write_fmt(format_args!(concat!($fmt, "\n"), $($arg)*)).unwrap());
 }
