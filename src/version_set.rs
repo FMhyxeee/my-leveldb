@@ -14,6 +14,7 @@ use crate::options::Options;
 use crate::table_cache::TableCache;
 use crate::types::parse_file_name;
 use crate::types::share;
+use crate::types::FileMetaData;
 use crate::types::FileNum;
 use crate::types::FileType;
 use crate::types::LdbIterator;
@@ -29,12 +30,13 @@ use std::io::Write;
 use std::path::Path;
 use std::rc::Rc;
 
-struct Compaction {
+pub struct Compaction {
     level: usize,
     max_file_size: usize,
     input_version: Option<Shared<Version>>,
     level_ixs: [usize; NUM_LEVELS],
     cmp: Rc<Box<dyn Cmp>>,
+    icmp: InternalKeyCmp,
 
     // "parent" inputs from level and level+1.
     inputs: [Vec<FileMetaHandle>; 2],
@@ -55,6 +57,7 @@ impl Compaction {
             input_version: input,
             level_ixs: Default::default(),
             cmp: opt.cmp.clone(),
+            icmp: InternalKeyCmp(opt.cmp.clone()),
 
             inputs: Default::default(),
             grandparent_ix: 0,
@@ -70,17 +73,31 @@ impl Compaction {
         self.inputs[parent].push(f);
     }
 
-    fn num_inputs(&self, parent: usize) -> usize {
+    pub fn level(&self) -> usize {
+        self.level
+    }
+
+    pub fn input(&self, parent: usize, ix: usize) -> FileMetaData {
+        assert!(parent < 2);
+        assert!(ix < self.inputs[parent].len());
+        self.inputs[parent][ix].borrow().clone()
+    }
+
+    pub fn num_inputs(&self, parent: usize) -> usize {
         assert!(parent < 2);
         self.inputs[parent].len()
     }
 
-    fn edit(&mut self) -> &mut VersionEdit {
+    pub fn edit(&mut self) -> &mut VersionEdit {
         &mut self.edit
     }
 
+    pub fn into_edit(self) -> VersionEdit {
+        self.edit
+    }
+
     /// add_input_deletions marks the current input files as deleted in the inner VersionEdit.
-    fn add_input_deletions(&mut self) {
+    pub fn add_input_deletions(&mut self) {
         for parent in 0..2 {
             for f in &self.inputs[parent] {
                 self.edit.delete_file(self.level + parent, f.borrow().num);
@@ -91,7 +108,7 @@ impl Compaction {
     /// is_base_level_for checks whether the given key may exist in levels higher than this
     /// compaction's level plus 2. I.e., whether the levels for this compaction are the last ones
     /// to contain the key.
-    fn is_base_level_for(&mut self, k: UserKey) -> bool {
+    pub fn is_base_level_for(&mut self, k: UserKey) -> bool {
         assert!(self.input_version.is_some());
         let inp_version = self.input_version.as_ref().unwrap();
         for level in self.level + 2..NUM_LEVELS {
@@ -105,23 +122,28 @@ impl Compaction {
                     }
                     break;
                 }
+
+                // level_ixs contains cross-call state to speed up following lookups.
                 self.level_ixs[level] += 1;
             }
         }
         true
     }
 
-    fn is_trivial_move(&self) -> bool {
+    pub fn is_trivial_move(&self) -> bool {
         let inputs_size = total_size(self.grandparents.as_ref().unwrap().iter());
         self.num_inputs(0) == 1 && self.num_inputs(1) == 0 && inputs_size < 10 * self.max_file_size
     }
 
-    fn should_stop_before(&mut self, k: InternalKey) -> bool {
+    pub fn should_stop_before(&mut self, k: InternalKey) -> bool {
         assert!(self.grandparents.is_some());
         let grandparents = self.grandparents.as_ref().unwrap();
-        let icmp = InternalKeyCmp(self.cmp.clone());
+
         while self.grandparent_ix < grandparents.len()
-            && icmp.cmp(k, &grandparents[self.grandparent_ix].borrow().largest) == Ordering::Greater
+            && self
+                .icmp
+                .cmp(k, &grandparents[self.grandparent_ix].borrow().largest)
+                == Ordering::Greater
         {
             if self.seen_key {
                 self.overlapped_bytes += grandparents[self.grandparent_ix].borrow().size;
@@ -184,8 +206,12 @@ impl VersionSet {
         }
     }
 
-    /// live_files return files currently needed.
-    fn live_files(&self) -> Vec<FileNum> {
+    pub fn current_summary(&self) -> String {
+        self.current.as_ref().unwrap().borrow().level_summary()
+    }
+
+    /// live_files return the files that are currently active.
+    pub fn live_files(&self) -> HashSet<FileNum> {
         let mut files = HashSet::new();
         for version in &self.versions {
             for level in 0..NUM_LEVELS {
@@ -194,7 +220,7 @@ impl VersionSet {
                 }
             }
         }
-        files.into_iter().collect()
+        files
     }
 
     /// release_compaction checks if the input_version of a compaction is held in the VersionSet,
@@ -235,7 +261,7 @@ impl VersionSet {
         total_size(self.current.as_ref().unwrap().borrow().files[l].iter())
     }
 
-    fn num_level_files(&self, l: usize) -> usize {
+    pub fn num_level_files(&self, l: usize) -> usize {
         assert!(l < NUM_LEVELS);
         assert!(self.current.is_some());
         self.current.as_ref().unwrap().borrow().files[l].len()
@@ -291,7 +317,7 @@ impl VersionSet {
         offset
     }
 
-    fn pick_compaction(&mut self) -> Option<Compaction> {
+    pub fn pick_compaction(&mut self) -> Option<Compaction> {
         assert!(self.current.is_some());
         let current = self.current();
         let current = current.borrow();
@@ -695,7 +721,7 @@ impl VersionSet {
     }
 
     /// make_input_iterator returns an iterator over the inputs of a compaction.
-    fn make_input_iterator(&self, c: &Compaction) -> Box<dyn LdbIterator> {
+    pub fn make_input_iterator(&self, c: &Compaction) -> Box<dyn LdbIterator> {
         let cap = if c.level == 0 { c.num_inputs(0) + 1 } else { 2 };
         let mut iters: Vec<Box<dyn LdbIterator>> = Vec::with_capacity(cap);
         for i in 0..2 {
@@ -1153,6 +1179,7 @@ mod tests {
         vs.add_version(v);
         // live_files()
         assert_eq!(9, vs.live_files().len());
+        assert!(vs.live_files().contains(&3));
         // num_level_bytes()
         assert_eq!(434, vs.num_level_bytes(0));
         assert_eq!(651, vs.num_level_bytes(1));
