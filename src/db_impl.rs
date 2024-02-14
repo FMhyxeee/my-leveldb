@@ -283,8 +283,10 @@ fn open_info_log<E: Env + ?Sized>(env: &E, db: &str) -> Logger {
 #[cfg(test)]
 mod tests {
     use crate::{
-        key_types::LookupKey, mem_env::MemEnv, options, test_util::LdbIteratorIter,
-        types::ValueType,
+        key_types::{LookupKey, ValueType},
+        mem_env::MemEnv,
+        options,
+        test_util::LdbIteratorIter,
     };
 
     use super::*;

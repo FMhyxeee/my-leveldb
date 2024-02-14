@@ -1,9 +1,6 @@
 use std::io::Write;
 
-use crate::{
-    options::{int_to_compressiontype, CompressionType},
-    types::{SequenceNumber, ValueType},
-};
+use crate::types::SequenceNumber;
 
 use integer_encoding::{FixedInt, FixedIntWriter, VarInt, VarIntWriter};
 
@@ -11,6 +8,12 @@ use integer_encoding::{FixedInt, FixedIntWriter, VarInt, VarIntWriter};
 // by different modules.
 // TODO: At some point, convert those into actual types with conversion between them, That's a lot
 // of boilerpalce, but increases type safety.
+
+#[derive(Debug, PartialEq, PartialOrd)]
+pub enum ValueType {
+    TypeDeletion = 0,
+    TypeValue = 1,
+}
 
 /// A MemtableKey consists of the following elements: [keylen, key, tag, (vallen, value)] where
 /// keylen is a varint32 encoding the length of key+tag. tag is a fixed 8 bytes segment encoding
@@ -151,16 +154,15 @@ pub fn parse_memtable_key(mkey: MemtableKey) -> (usize, usize, u64, usize, usize
 }
 
 /// Parse a key in Internal format.
-pub fn parse_internal_key(ikey: InternalKey) -> (CompressionType, u64, UserKey) {
+pub fn parse_internal_key(ikey: InternalKey) -> (ValueType, u64, UserKey) {
     if ikey.is_empty() {
-        return (CompressionType::CompressionNone, 0, &ikey[0..0]);
+        return (ValueType::TypeValue, 0, &ikey[0..0]);
     }
     assert!(ikey.len() >= 8);
 
-    let (ctype, seq) = parse_tag(FixedInt::decode_fixed(&ikey[ikey.len() - 8..]));
-    let ctype = int_to_compressiontype(ctype as u32).unwrap_or(CompressionType::CompressionNone);
+    let (typ, seq) = parse_tag(FixedInt::decode_fixed(&ikey[ikey.len() - 8..]));
 
-    (ctype, seq, &ikey[0..ikey.len() - 8])
+    (typ, seq, &ikey[0..ikey.len() - 8])
 }
 
 #[cfg(test)]

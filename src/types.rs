@@ -4,12 +4,6 @@ use std::{cell::RefCell, rc::Rc};
 
 pub const NUM_LEVELS: usize = 7;
 
-#[derive(Debug, PartialEq, PartialOrd)]
-pub enum ValueType {
-    TypeDeletion = 0,
-    TypeValue = 1,
-}
-
 // Represents a sequence number of a single entry.
 pub type SequenceNumber = u64;
 

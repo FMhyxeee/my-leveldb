@@ -3,9 +3,9 @@ use std::rc::Rc;
 
 use crate::cmp::InternalKeyCmp;
 use crate::error::Result;
-use crate::key_types::{parse_internal_key, InternalKey, LookupKey, UserKey};
+use crate::key_types::{parse_internal_key, InternalKey, LookupKey, UserKey, ValueType};
 use crate::table_reader::TableIterator;
-use crate::types::{FileNum, LdbIterator, Shared, ValueType, MAX_SEQUENCE_NUMBER, NUM_LEVELS};
+use crate::types::{FileNum, LdbIterator, Shared, MAX_SEQUENCE_NUMBER, NUM_LEVELS};
 use crate::{cmp::Cmp, table_cache::TableCache, types::FileMetaData};
 
 /// FileMetaHandle is a reference-counted FileMetaData object with interior mutability. This is

@@ -4,9 +4,9 @@ use std::rc::Rc;
 use crate::{
     cmp::{Cmp, MemtableKeyCmp},
     error::{err, Result, StatusCode},
-    key_types::{build_memtable_key, parse_memtable_key, LookupKey, UserKey},
+    key_types::{build_memtable_key, parse_memtable_key, LookupKey, UserKey, ValueType},
     skipmap::{SkipMap, SkipMapIter},
-    types::{current_key_val, LdbIterator, SequenceNumber, ValueType},
+    types::{current_key_val, LdbIterator, SequenceNumber},
 };
 
 /// Provides Insert/Get/Iterate, based on the SkipMap implementation.

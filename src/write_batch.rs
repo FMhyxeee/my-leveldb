@@ -4,10 +4,8 @@ use integer_encoding::FixedInt;
 use integer_encoding::VarInt;
 use integer_encoding::VarIntWriter;
 
-use crate::{
-    memtable::MemTable,
-    types::{SequenceNumber, ValueType},
-};
+use crate::key_types::ValueType;
+use crate::{memtable::MemTable, types::SequenceNumber};
 
 const SEQNUM_OFFSET: usize = 0;
 const COUNT_OFFSET: usize = 8;
