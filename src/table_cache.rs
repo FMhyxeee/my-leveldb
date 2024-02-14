@@ -77,6 +77,14 @@ impl TableCache {
         self.cache.insert(&filenum_to_key(file_num), table.clone());
         Ok(table)
     }
+
+    pub fn evict(&mut self, file_num: FileNum) -> Result<()> {
+        if self.cache.remove(&filenum_to_key(file_num)).is_some() {
+            Ok(())
+        } else {
+            err(StatusCode::NotFound, "table not present in cache")
+        }
+    }
 }
 
 #[cfg(test)]
