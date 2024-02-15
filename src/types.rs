@@ -121,7 +121,7 @@ pub struct FileMetaData {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FileType {
     Log,
-    BDLock,
+    DBLock,
     Table,
     Descriptor,
     Current,
@@ -133,7 +133,7 @@ pub fn parse_file_name(f: &str) -> Result<(FileNum, FileType)> {
     if f == "CURRENT" {
         return Ok((0, FileType::Current));
     } else if f == "LOCK" {
-        return Ok((0, FileType::BDLock));
+        return Ok((0, FileType::DBLock));
     } else if f == "LOG" || f == "LOG.old" {
         return Ok((0, FileType::InfoLog));
     } else if f.starts_with("MANIFEST-") {
@@ -178,7 +178,7 @@ mod tests {
     fn test_types_parse_file_name() {
         for c in &[
             ("CURRENT", (0, FileType::Current)),
-            ("LOCK", (0, FileType::BDLock)),
+            ("LOCK", (0, FileType::DBLock)),
             ("LOG", (0, FileType::InfoLog)),
             ("LOG.old", (0, FileType::InfoLog)),
             ("MANIFEST-01234", (1234, FileType::Descriptor)),
