@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::types::SequenceNumber;
 
-// Opaque snapshot handle; Represents index to snapshotList.map
+/// Opaque snapshot handle; Represents index to snapshotList.map
 pub type Snapshot = u64;
 
 /// A list of all snapshots is kept in the DB.
