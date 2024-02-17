@@ -108,11 +108,7 @@ pub fn build_memtable_key(key: &[u8], value: &[u8], t: ValueType, seq: SequenceN
 
     let keysize = key.len() + U64_SPACE;
     let valsize = value.len();
-    let mut buf = Vec::new();
-    buf.resize(
-        keysize + valsize + keysize.required_space() + valsize.required_space(),
-        0,
-    );
+    let mut buf = vec![0; keysize + valsize + keysize.required_space() + valsize.required_space()];
     {
         let mut writer = buf.as_mut_slice();
         writer.write_varint(keysize).expect("write to slice failed");
