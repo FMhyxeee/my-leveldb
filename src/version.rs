@@ -46,9 +46,10 @@ impl Version {
     /// get returns the value for the specified key using the persistent tables contained in this
     /// Version.
     #[allow(unused_assignments)]
-    fn get(&self, key: &LookupKey) -> Result<Option<(Vec<u8>, GetStats)>> {
+    fn get(&self, key: InternalKey) -> Result<Option<(Vec<u8>, GetStats)>> {
         let levels = self.get_overlapping(key);
-        let ikey = key.internal_key();
+        let ikey = key;
+        let ukey = parse_internal_key(key).2;
         let mut stats = GetStats {
             file: None,
             level: 0,
@@ -69,9 +70,7 @@ impl Version {
                 // keys, we now need to check whether the found entry's user key is equal to the
                 // one we're looking for (get() just returns the next-bigger key).
                 if let Ok(Some((k, v))) = self.table_cache.borrow_mut().get(f.borrow().num, ikey) {
-                    if self.user_cmp.cmp(parse_internal_key(&k).2, key.user_key())
-                        == Ordering::Equal
-                    {
+                    if self.user_cmp.cmp(parse_internal_key(&k).2, ukey) == Ordering::Equal {
                         return Ok(Some((v, stats)));
                     }
                 }
@@ -81,10 +80,10 @@ impl Version {
     }
 
     /// get_overlapping returns the files overlapping key in each level.
-    fn get_overlapping(&self, key: &LookupKey) -> [Vec<FileMetaHandle>; NUM_LEVELS] {
+    fn get_overlapping(&self, key: InternalKey) -> [Vec<FileMetaHandle>; NUM_LEVELS] {
         let mut levels: [Vec<FileMetaHandle>; NUM_LEVELS] = Default::default();
-        let ikey = key.internal_key();
-        let ukey = key.user_key();
+        let ikey = key;
+        let ukey = parse_internal_key(key).2;
 
         let files = &self.files[0];
         levels[0].reserve(files.len());
@@ -176,7 +175,7 @@ impl Version {
     /// record_read_sample returns true if there is a new file to be compacted. It counts the
     /// number of files overlapping a key, and which level contains the first overlap.
     #[allow(unused_assignments)]
-    fn record_read_sample(&mut self, key: &LookupKey) -> bool {
+    pub fn record_read_sample(&mut self, key: InternalKey) -> bool {
         let levels = self.get_overlapping(key);
         let mut contained_in = 0;
         let mut first_file = None;
@@ -775,7 +774,7 @@ mod tests {
         ];
 
         for c in cases {
-            match v.get(&LookupKey::new(c.0, c.1)) {
+            match v.get(LookupKey::new(c.0, c.1).internal_key()) {
                 Ok(Some((val, _))) => assert_eq!(c.2.as_ref().unwrap().as_ref().unwrap(), &val),
                 Ok(None) => assert!(c.2.as_ref().unwrap().as_ref().is_none()),
                 Err(_) => assert!(c.2.is_err()),
@@ -871,15 +870,15 @@ mod tests {
         let k = LookupKey::new("aab".as_bytes(), MAX_SEQUENCE_NUMBER);
         let only_in_one = LookupKey::new("cax".as_bytes(), MAX_SEQUENCE_NUMBER);
 
-        assert!(!v.record_read_sample(&k));
-        assert!(!v.record_read_sample(&only_in_one));
+        assert!(!v.record_read_sample(k.internal_key()));
+        assert!(!v.record_read_sample(only_in_one.internal_key()));
 
         for fs in v.files.iter() {
             for f in fs {
                 f.borrow_mut().allowed_seeks = 0;
             }
         }
-        assert!(v.record_read_sample(&k));
+        assert!(v.record_read_sample(k.internal_key()));
     }
 
     #[test]
