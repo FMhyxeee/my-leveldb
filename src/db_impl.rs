@@ -11,7 +11,7 @@ use crate::{
     error::Result,
     filter::{BoxedFilterPolicy, InternalFilterPolicy},
     infolog::Logger,
-    key_types::{parse_internal_key, ValueType},
+    key_types::{parse_internal_key, InternalKey, ValueType},
     log::LogWriter,
     memtable::MemTable,
     options::Options,
@@ -80,6 +80,14 @@ impl DB {
     fn add_stats(&mut self, level: usize, cs: CompactionStats) {
         assert!(level < NUM_LEVELS);
         self.cstats[level].add(cs);
+    }
+
+    /// Trigger a compaction based on where this key is located in the different levels.
+    fn record_read_sample(&mut self, k: InternalKey) {
+        let current = self.vset.current();
+        if current.borrow_mut().record_read_sample(k) {
+            self.maybe_do_compaction();
+        }
     }
 
     pub fn get_snapshot(&mut self) -> Snapshot {
