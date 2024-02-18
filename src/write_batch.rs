@@ -37,6 +37,11 @@ impl WriteBatch {
         self.sync = sync;
     }
 
+    pub fn set_contents(&mut self, from: &[u8]) {
+        self.entries.clear();
+        self.entries.extend_from_slice(from);
+    }
+
     fn from(buf: Vec<u8>) -> WriteBatch {
         WriteBatch {
             entries: buf,
