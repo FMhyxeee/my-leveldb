@@ -5,7 +5,7 @@ use std::result;
 use std::{io, sync};
 
 /// StatusCode describes various failure modes of database operations.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
 #[allow(dead_code)]
 pub enum StatusCode {
     OK,
