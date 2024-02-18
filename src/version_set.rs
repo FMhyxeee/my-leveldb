@@ -254,7 +254,7 @@ impl VersionSet {
         }
     }
 
-    fn mark_file_number_used(&mut self, n: FileNum) {
+    pub fn mark_file_number_used(&mut self, n: FileNum) {
         if self.next_file_num <= n {
             self.next_file_num = n + 1;
         }
@@ -562,27 +562,13 @@ impl VersionSet {
     /// recover recovers the state of a LevelDB instance from the files on disk. If recover()
     /// returns true, proceed with calling log_and_apply().
     #[allow(clippy::read_zero_byte_vec)]
-    fn recover(&mut self) -> Result<bool> {
+    pub fn recover(&mut self) -> Result<bool> {
         assert!(self.current.is_some());
 
-        let mut current = String::new();
-        {
-            let mut f = self
-                .opt
-                .env
-                .open_sequential_file(Path::new(&current_file_name(&self.dbname)))?;
-            f.read_to_string(&mut current)?;
-        }
-        if current.is_empty() || !current.ends_with('\n') {
-            return err(
-                StatusCode::Corruption,
-                "current file is empty or has no newline",
-            );
-        }
-        {
-            let len = current.len();
-            current.truncate(len - 1);
-        }
+        let mut current = read_current_file(&self.opt.env, &self.dbname)?;
+
+        let len = current.len();
+        current.truncate(len - 1);
 
         let descfilename = format!("{}/{}", self.dbname, current);
         let mut builder = Builder::new();
@@ -595,7 +581,7 @@ impl VersionSet {
                 &mut descfile,
                 // checksum=
                 true,
-                // offset=
+                // checksum_type=
                 0,
             );
 
@@ -659,6 +645,9 @@ impl VersionSet {
 
     /// reuse_manifest checks whether the current manifest can be reused.
     fn reuse_manifest(&mut self, current_manifest_path: &str, current_manifest_base: &str) -> bool {
+        if !self.opt.reuse_manifest {
+            return false;
+        }
         // The original doesn't reuse manifests; we do.
         if let Ok((num, typ)) = parse_file_name(current_manifest_base) {
             if typ != FileType::Descriptor {
@@ -684,7 +673,6 @@ impl VersionSet {
                 return true;
             } else {
                 log!(self.opt.log, "reuse_manifest: {}", s.err().unwrap());
-                return false;
             }
         }
         false
@@ -836,7 +824,7 @@ fn manifest_name(file_num: FileNum) -> String {
     format!("MANIFEST-{:06}", file_num)
 }
 
-fn manifest_file_name(dbname: &str, file_num: FileNum) -> String {
+pub fn manifest_file_name(dbname: &str, file_num: FileNum) -> String {
     format!("{}/{}", dbname, manifest_name(file_num))
 }
 
@@ -849,7 +837,25 @@ fn current_file_name(dbname: &str) -> String {
 }
 
 #[allow(clippy::borrowed_box)]
-fn set_current_file(env: &Box<dyn Env>, dbname: &str, manifest_file_num: FileNum) -> Result<()> {
+pub fn read_current_file(env: &Box<dyn Env>, dbname: &str) -> Result<String> {
+    let mut current = String::new();
+    let mut f = env.open_sequential_file(Path::new(&current_file_name(dbname)))?;
+    f.read_to_string(&mut current)?;
+    if current.is_empty() || !current.ends_with('\n') {
+        return err(
+            StatusCode::Corruption,
+            "current file is empty or has no newline",
+        );
+    }
+    Ok(current)
+}
+
+#[allow(clippy::borrowed_box)]
+pub fn set_current_file(
+    env: &Box<dyn Env>,
+    dbname: &str,
+    manifest_file_num: FileNum,
+) -> Result<()> {
     let manifest_base = manifest_name(manifest_file_num);
     let tempfile = temp_file_name(dbname, manifest_file_num);
 
