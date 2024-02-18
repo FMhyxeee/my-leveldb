@@ -581,8 +581,6 @@ impl VersionSet {
                 &mut descfile,
                 // checksum=
                 true,
-                // checksum_type=
-                0,
             );
 
             let mut log_number = None;
