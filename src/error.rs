@@ -28,7 +28,7 @@ pub enum StatusCode {
 
 /// Status encapsulates a `StatusCode` and an error message. It can be displayed, and also
 /// implements `Error`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Status {
     pub code: StatusCode,
     pub err: String,
