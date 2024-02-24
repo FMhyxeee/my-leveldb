@@ -115,6 +115,31 @@ impl DB {
         Ok(db)
     }
 
+    /// acquire_lock acquires that lock file.
+    fn acquire_lock(&mut self) -> Result<()> {
+        let lock_r = self.opt.env.lock(Path::new(&lock_file_name(&self.name)));
+        if let Ok(lockfile) = lock_r {
+            self.lock = Some(lockfile);
+            return Ok(());
+        }
+
+        let e = lock_r.unwrap_err();
+        if e.code == StatusCode::LockError {
+            return err(
+                StatusCode::LockError,
+                "database lock is held by another instance",
+            );
+        }
+        Err(e)
+    }
+
+    /// release_lock release the lock file, if it's currently held.
+    fn release_lock(&mut self) {
+        if let Some(lock) = self.lock.take() {
+            let _ = self.opt.env.unlock(lock);
+        }
+    }
+
     /// initialize_db initializes a new database.
     fn initialize_db(&mut self) -> Result<()> {
         let mut ve = VersionEdit::new();
@@ -137,8 +162,7 @@ impl DB {
     /// log_and_apply() should be called after recovery has finished.
     fn recover(&mut self, ve: &mut VersionEdit) -> Result<bool> {
         let _ = self.opt.env.mkdir(Path::new(&self.name)).is_ok();
-        let lockfile = self.opt.env.lock(Path::new(&lock_file_name(&self.name)))?;
-        self.lock = Some(lockfile);
+        self.acquire_lock()?;
 
         if let Err(e) = read_current_file(&self.opt.env, &self.name) {
             if e.code == StatusCode::NotFound && self.opt.create_if_missing {
@@ -709,9 +733,7 @@ impl DB {
 
 impl Drop for DB {
     fn drop(&mut self) {
-        if let Some(l) = self.lock.take() {
-            let _ = self.opt.env.unlock(l);
-        }
+        self.release_lock();
     }
 }
 
@@ -835,6 +857,7 @@ fn open_info_log<E: Env + ?Sized>(env: &E, db: &str) -> Logger {
 #[cfg(test)]
 mod tests {
     use crate::{
+        error::Status,
         key_types::{LookupKey, ValueType},
         mem_env::MemEnv,
         options,
@@ -999,6 +1022,17 @@ mod tests {
                     .as_slice()
             );
         }
+    }
+
+    #[test]
+    fn test_db_impl_locking() {
+        let opt = options::for_test();
+        let _db = DB::open("db", opt.clone()).unwrap();
+        let want_err = Status::new(
+            StatusCode::LockError,
+            "database lock is held by another instance",
+        );
+        assert_eq!(want_err, DB::open("db", opt.clone()).err().unwrap());
     }
 
     #[test]

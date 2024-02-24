@@ -29,6 +29,7 @@ impl RandomAccess for File {
     }
 }
 
+#[derive(Debug)]
 pub struct FileLock {
     pub id: String,
 }
