@@ -937,7 +937,7 @@ mod tests {
             );
             let mut opt = opt.clone();
             opt.reuse_manifest = false;
-            let db = DB::open("db", opt.clone()).unwrap();
+            let mut db = DB::open("db", opt.clone()).unwrap();
 
             println!(
                 "children after: {:?}",
@@ -965,6 +965,7 @@ mod tests {
                     .0
                     .as_slice()
             );
+            db.put("abe".as_bytes(), "def".as_bytes()).unwrap();
         }
 
         {
@@ -976,7 +977,7 @@ mod tests {
             // manifest is written. CURRENT becomes stale.
             let mut opt = opt.clone();
             opt.reuse_logs = true;
-            let _db = DB::open("db", opt).unwrap();
+            let db = DB::open("db", opt).unwrap();
 
             println!(
                 "children after: {:?}",
@@ -988,6 +989,15 @@ mod tests {
             assert!(env.exists(Path::new("db/000004.log")).unwrap());
             // 000004 should be reused, no new log file should be created.
             assert!(!env.exists(Path::new("db/000006.log")).unwrap());
+            // Log is reused, so memtable should contain last written entry from above.
+            assert_eq!(1, db.mem.len());
+            assert_eq!(
+                "def".as_bytes(),
+                db.mem
+                    .get(&LookupKey::new("abe".as_bytes(), 3))
+                    .unwrap()
+                    .as_slice()
+            );
         }
     }
 
