@@ -1,6 +1,6 @@
 use crate::env::{path_to_str, Env, FileLock, Logger, RandomAccess};
 use crate::env_common::{micros, sleep_for};
-use crate::error::{Result, Status, StatusCode};
+use crate::error::{err, Result, Status, StatusCode};
 use fs2::FileExt;
 
 use std::collections::hash_map::Entry;
@@ -146,11 +146,14 @@ impl Env for PosixDiskEnv {
     fn unlock(&self, l: FileLock) -> Result<()> {
         let mut locks = self.locks.lock().unwrap();
         if !locks.contains_key(&l.id) {
-            panic!("Unlocking a file that is not locked!");
+            err(
+                StatusCode::LockError,
+                "unlocking a file that is not locked!",
+            )
         } else {
             let f = locks.remove(&l.id).unwrap();
             if f.unlock().is_err() {
-                panic!("Unlocking err!");
+                return err(StatusCode::LockError, "unlock failed");
             }
             Ok(())
         }
