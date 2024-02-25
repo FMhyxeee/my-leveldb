@@ -201,7 +201,7 @@ impl Version {
 
     /// update_stats updates the number of seeks, and remembers files with too many seeks as
     /// compaction candidates.
-    fn update_stats(&mut self, stats: GetStats) -> bool {
+    pub fn update_stats(&mut self, stats: GetStats) -> bool {
         if let Some(file) = stats.file {
             {
                 file.borrow_mut().allowed_seeks -= 1;
