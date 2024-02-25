@@ -77,8 +77,10 @@ impl SkipMap {
     pub fn contains(&mut self, key: &[u8]) -> bool {
         self.map.borrow().contains(key)
     }
+
+    /// inserts a key into the table. key may not be empty
     pub fn insert(&mut self, key: Vec<u8>, val: Vec<u8>) {
-        // TODO: Possibly wrap into Mutex
+        assert!(!key.is_empty());
         self.map.borrow_mut().insert(key, val);
     }
 
@@ -139,7 +141,10 @@ impl InnerSkipMap {
             level -= 1;
         }
         unsafe {
-            if current.is_null() || self.cmp.cmp(&(*current).key, key) == Ordering::Less {
+            if current.is_null()
+                || (*current).key.is_empty()
+                || self.cmp.cmp(&(*current).key, key) == Ordering::Less
+            {
                 None
             } else {
                 Some(&(*current))
@@ -478,6 +483,17 @@ pub mod tests {
                 .as_slice(),
             "abz".as_bytes()
         );
+    }
+
+    #[test]
+    fn test_empty_skipmap_find_memtable_cmp() {
+        // Regression test: Make sure comparator isn't called with empty key.
+        let cmp: Rc<Box<dyn Cmp>> = Rc::new(Box::new(MemtableKeyCmp(options::for_test().cmp)));
+        let skm = SkipMap::new(cmp);
+
+        let mut it = skm.iter();
+        it.seek("abc".as_bytes());
+        assert!(!it.valid());
     }
 
     #[test]
