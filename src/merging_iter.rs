@@ -51,6 +51,9 @@ impl MergingIter {
     /// call was next() or prev(). This basically sets all iterators to one
     /// entry after (Fwd) or one entry before (Rvrs) the current() entry.
     fn update_direction(&mut self, d: Direction) {
+        let mut keybuf = vec![];
+        let mut valbuf = vec![];
+
         if let Some((key, _)) = current_key_val(self) {
             if let Some(current) = self.current {
                 match d {
@@ -58,16 +61,14 @@ impl MergingIter {
                         self.direction = Direction::Fwd;
                         for i in 0..self.iters.len() {
                             if i != current {
-                                self.iters[i].seek(&key);
+                                self.iters[i].seek(&keybuf);
                                 // This doesn't work if two iterators are returning the exact same
                                 // keys. However, in reality, two entries will always have differing
                                 // sequence numbers.
-                                if let Some((current_key, _)) =
-                                    current_key_val(self.iters[i].as_ref())
+                                if self.iters[i].current(&mut keybuf, &mut valbuf)
+                                    && self.cmp.cmp(&keybuf, &key) == Ordering::Equal
                                 {
-                                    if self.cmp.cmp(&current_key, &key) == Ordering::Equal {
-                                        self.iters[i].advance();
-                                    }
+                                    self.iters[i].advance();
                                 }
                             }
                         }
