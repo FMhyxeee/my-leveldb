@@ -115,31 +115,6 @@ impl DB {
         Ok(db)
     }
 
-    /// acquire_lock acquires that lock file.
-    fn acquire_lock(&mut self) -> Result<()> {
-        let lock_r = self.opt.env.lock(Path::new(&lock_file_name(&self.name)));
-        if let Ok(lockfile) = lock_r {
-            self.lock = Some(lockfile);
-            return Ok(());
-        }
-
-        let e = lock_r.unwrap_err();
-        if e.code == StatusCode::LockError {
-            return err(
-                StatusCode::LockError,
-                "database lock is held by another instance",
-            );
-        }
-        Err(e)
-    }
-
-    /// release_lock release the lock file, if it's currently held.
-    fn release_lock(&mut self) {
-        if let Some(lock) = self.lock.take() {
-            let _ = self.opt.env.unlock(lock);
-        }
-    }
-
     /// initialize_db initializes a new database.
     fn initialize_db(&mut self) -> Result<()> {
         let mut ve = VersionEdit::new();
@@ -346,6 +321,31 @@ impl DB {
             }
         }
         Ok(())
+    }
+
+    /// acquire_lock acquires that lock file.
+    fn acquire_lock(&mut self) -> Result<()> {
+        let lock_r = self.opt.env.lock(Path::new(&lock_file_name(&self.name)));
+        if let Ok(lockfile) = lock_r {
+            self.lock = Some(lockfile);
+            return Ok(());
+        }
+
+        let e = lock_r.unwrap_err();
+        if e.code == StatusCode::LockError {
+            return err(
+                StatusCode::LockError,
+                "database lock is held by another instance",
+            );
+        }
+        Err(e)
+    }
+
+    /// release_lock release the lock file, if it's currently held.
+    fn release_lock(&mut self) {
+        if let Some(lock) = self.lock.take() {
+            let _ = self.opt.env.unlock(lock);
+        }
     }
 }
 
