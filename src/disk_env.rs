@@ -79,7 +79,7 @@ impl Env for PosixDiskEnv {
         Ok(p.exists())
     }
     fn children(&self, p: &Path) -> Result<Vec<String>> {
-        let dir_reader = fs::read_dir(p).unwrap();
+        let dir_reader = fs::read_dir(p).map_err(|e| map_err_with_name("children", p, e))?;
         let filenames = dir_reader
             .map(|r| {
                 if let Ok(direntry) = r {
@@ -148,12 +148,12 @@ impl Env for PosixDiskEnv {
         if !locks.contains_key(&l.id) {
             err(
                 StatusCode::LockError,
-                "unlocking a file that is not locked!",
+                &format!("unlocking a file that is not locked: {}", l.id),
             )
         } else {
             let f = locks.remove(&l.id).unwrap();
             if f.unlock().is_err() {
-                return err(StatusCode::LockError, "unlock failed");
+                return err(StatusCode::LockError, &format!("unlock failed: {}", l.id));
             }
             Ok(())
         }
