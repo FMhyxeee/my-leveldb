@@ -1060,43 +1060,6 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn test_db_impl_compaction_trivial_move() {
-        let mut db = DB::open("db", options::for_test()).unwrap();
-
-        db.put("abc".as_bytes(), "xyz".as_bytes()).unwrap();
-        db.put("ab3".as_bytes(), "xyz".as_bytes()).unwrap();
-        db.put("ab0".as_bytes(), "xyz".as_bytes()).unwrap();
-        db.put("abz".as_bytes(), "xyz".as_bytes()).unwrap();
-        assert_eq!(4, db.mem.len());
-        let mut imm = MemTable::new(db.opt.cmp.clone());
-        mem::swap(&mut imm, &mut db.mem);
-        db.imm = Some(imm);
-        db.compact_memtable().unwrap();
-
-        println!(
-            "children after: {:?}",
-            db.opt.env.children(Path::new("db/")).unwrap()
-        );
-        assert!(db.opt.env.exists(Path::new("db/000004.ldb")).unwrap());
-
-        {
-            let v = db.vset.current();
-            let mut v = v.borrow_mut();
-            v.file_to_compact = Some(v.files[2][0].clone());
-            v.file_to_compact_lvl = 2;
-        }
-
-        db.maybe_do_compaction().unwrap();
-
-        {
-            let v = db.vset.current();
-            let v = v.borrow_mut();
-            assert_eq!(1, v.files[3].len());
-        }
-    }
-
-    #[test]
-    #[ignore]
     fn test_db_impl_build_table() {
         let mut opt = options::for_test();
         opt.block_size = 128;
@@ -1150,8 +1113,6 @@ mod tests {
             );
         }
     }
-
-    // compaction tests //
 
     /// build_db creates a database filled with the tables reated by make_version().
     fn build_db() -> DB {
@@ -1226,6 +1187,43 @@ mod tests {
         assert!(!env.exists(Path::new(&table_file_name(name, 4))).unwrap());
         assert!(!env.exists(Path::new(&table_file_name(name, 5))).unwrap());
         assert!(env.exists(Path::new(&table_file_name(name, 13))).unwrap());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_db_impl_compaction_trivial_move() {
+        let mut db = DB::open("db", options::for_test()).unwrap();
+
+        db.put("abc".as_bytes(), "xyz".as_bytes()).unwrap();
+        db.put("ab3".as_bytes(), "xyz".as_bytes()).unwrap();
+        db.put("ab0".as_bytes(), "xyz".as_bytes()).unwrap();
+        db.put("abz".as_bytes(), "xyz".as_bytes()).unwrap();
+        assert_eq!(4, db.mem.len());
+        let mut imm = MemTable::new(db.opt.cmp.clone());
+        mem::swap(&mut imm, &mut db.mem);
+        db.imm = Some(imm);
+        db.compact_memtable().unwrap();
+
+        println!(
+            "children after: {:?}",
+            db.opt.env.children(Path::new("db/")).unwrap()
+        );
+        assert!(db.opt.env.exists(Path::new("db/000004.ldb")).unwrap());
+
+        {
+            let v = db.vset.current();
+            let mut v = v.borrow_mut();
+            v.file_to_compact = Some(v.files[2][0].clone());
+            v.file_to_compact_lvl = 2;
+        }
+
+        db.maybe_do_compaction().unwrap();
+
+        {
+            let v = db.vset.current();
+            let v = v.borrow_mut();
+            assert_eq!(1, v.files[3].len());
+        }
     }
 
     #[test]
