@@ -1,18 +1,35 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 use crate::types::{share, SequenceNumber, Shared, MAX_SEQUENCE_NUMBER};
 
 /// Opaque snapshot handle; Represents index to snapshotList.map
 pub type SnapshotHandle = u64;
 
-pub struct Snapshot {
+#[derive(Clone)]
+pub struct InnerSnapshot {
     id: SnapshotHandle,
+    seq: SequenceNumber,
     sl: Shared<InnerSnapshotList>,
 }
 
-impl Drop for Snapshot {
+impl Drop for InnerSnapshot {
     fn drop(&mut self) {
         self.sl.borrow_mut().delete(self.id);
+    }
+}
+
+#[derive(Clone)]
+pub struct Snapshot {
+    inner: Rc<InnerSnapshot>,
+}
+
+impl Snapshot {
+    pub fn sequence_number(&self) -> SequenceNumber {
+        self.inner.seq
+    }
+
+    pub fn sequence(&self) -> SequenceNumber {
+        self.inner.seq
     }
 }
 
@@ -51,14 +68,12 @@ impl SnapshotList {
         }
 
         Snapshot {
-            id: sl.newest,
-            sl: inner,
+            inner: Rc::new(InnerSnapshot {
+                id: sl.newest,
+                seq,
+                sl: inner,
+            }),
         }
-    }
-
-    pub fn sequence_at(&self, ss: &Snapshot) -> Option<SequenceNumber> {
-        let sl = self.inner.borrow_mut();
-        sl.map.get(&ss.id).copied()
     }
 
     /// oldest returns the lowest sequence number of all snapshots. It returns 0 if no snapshots

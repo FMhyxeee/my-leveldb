@@ -12,7 +12,6 @@ mod filter;
 mod filter_block;
 #[macro_use]
 mod infolog;
-mod db_impl;
 mod key_types;
 mod log;
 mod mem_env;
@@ -24,10 +23,12 @@ mod snapshot;
 mod table_builder;
 mod table_cache;
 mod table_reader;
+mod test_util;
 mod types;
 mod version;
 mod version_edit;
 mod version_set;
 mod write_batch;
 
-mod test_util;
+mod db_impl;
+mod db_iter;

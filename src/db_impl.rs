@@ -8,6 +8,7 @@ use std::{
 
 use crate::{
     cmp::{Cmp, InternalKeyCmp},
+    db_iter::DBIterator,
     env::{Env, FileLock},
     error::{err, Result, StatusCode},
     filter::{BoxedFilterPolicy, InternalFilterPolicy},
@@ -15,6 +16,7 @@ use crate::{
     key_types::{parse_internal_key, InternalKey, LookupKey, ValueType},
     log::{LogReader, LogWriter},
     memtable::MemTable,
+    merging_iter::MergingIter,
     options::Options,
     snapshot::{Snapshot, SnapshotList},
     table_builder::TableBuilder,
@@ -38,7 +40,7 @@ pub struct DB {
     name: String,
     lock: Option<FileLock>,
 
-    cmp: InternalKeyCmp,
+    internal_cmp: Rc<Box<dyn Cmp>>,
     fpol: InternalFilterPolicy<BoxedFilterPolicy>,
     opt: Options,
 
@@ -48,7 +50,7 @@ pub struct DB {
     log: Option<LogWriter<Box<dyn Write>>>,
     log_num: Option<FileNum>,
     cache: Shared<TableCache>,
-    vset: VersionSet,
+    vset: Shared<VersionSet>,
     snaps: SnapshotList,
 
     cstats: [CompactionStats; NUM_LEVELS],
@@ -68,7 +70,7 @@ impl DB {
         DB {
             name: name.to_string(),
             lock: None,
-            cmp: InternalKeyCmp(opt.cmp.clone()),
+            internal_cmp: Rc::new(Box::new(InternalKeyCmp(opt.cmp.clone()))),
             fpol: InternalFilterPolicy::new(opt.filter_policy.clone()),
 
             mem: MemTable::new(opt.cmp.clone()),
@@ -78,10 +80,14 @@ impl DB {
             log: None,
             log_num: None,
             cache,
-            vset,
+            vset: share(vset),
             snaps: SnapshotList::new(),
             cstats: Default::default(),
         }
+    }
+
+    fn current(&self) -> Shared<Version> {
+        self.vset.borrow().current()
     }
 
     /// Opens or creates* a new or existing database.
@@ -94,7 +100,7 @@ impl DB {
 
         // Create log file if an old one is not being reused.
         if db.log.is_none() {
-            let lognum = db.vset.new_file_number();
+            let lognum = db.vset.borrow_mut().new_file_number();
             let logfile = db
                 .opt
                 .env
@@ -106,7 +112,7 @@ impl DB {
 
         if save_manifest {
             ve.set_log_num(db.log_num.unwrap_or(0));
-            db.vset.log_and_apply(ve)?;
+            db.vset.borrow_mut().log_and_apply(ve)?;
         }
 
         db.delete_obsolete_files()?;
@@ -157,18 +163,18 @@ impl DB {
 
         // If save_manifest is true, the existing manifest is reused and we should log_and_apply()
         // later.
-        let mut save_manifest = self.vset.recover()?;
+        let mut save_manifest = self.vset.borrow_mut().recover()?;
 
         // Recover from all log files not in the descriptor.
         let mut max_seq = 0;
         let filenames = self.opt.env.children(Path::new(&self.name))?;
-        let mut expected = self.vset.live_files();
+        let mut expected = self.vset.borrow().live_files();
         let mut log_files = vec![];
 
         for file in &filenames {
             if let Ok((num, typ)) = parse_file_name(file) {
                 expected.remove(&num);
-                if typ == FileType::Log && num >= self.vset.log_num {
+                if typ == FileType::Log && num >= self.vset.borrow().log_num {
                     log_files.push(num);
                 }
             }
@@ -188,11 +194,11 @@ impl DB {
             if max_seq_ > max_seq {
                 max_seq = max_seq_;
             }
-            self.vset.mark_file_number_used(log_files[i]);
+            self.vset.borrow_mut().mark_file_number_used(log_files[i]);
         }
 
-        if self.vset.last_seq < max_seq {
-            self.vset.last_seq = max_seq;
+        if self.vset.borrow().last_seq < max_seq {
+            self.vset.borrow_mut().last_seq = max_seq;
         }
 
         Ok(save_manifest)
@@ -275,19 +281,19 @@ impl DB {
 
     /// delete_obsolete_files removes files that are no longer needed from the file system.
     fn delete_obsolete_files(&mut self) -> Result<()> {
-        let files = self.vset.live_files();
+        let files = self.vset.borrow().live_files();
         let filenames = self.opt.env.children(Path::new(&self.name))?;
         for name in filenames {
             if let Ok((num, typ)) = parse_file_name(&name) {
                 log!(self.opt.log, "{} {:?}", num, typ);
                 match typ {
                     FileType::Log => {
-                        if num >= self.vset.log_num {
+                        if num >= self.vset.borrow().log_num {
                             continue;
                         }
                     }
                     FileType::Descriptor => {
-                        if num >= self.vset.manifest_num {
+                        if num >= self.vset.borrow().manifest_num {
                             continue;
                         }
                     }
@@ -365,15 +371,14 @@ impl DB {
         assert!(self.log.is_some());
         let entries = batch.count() as u64;
         let log = self.log.as_mut().unwrap();
-        let next = self.vset.last_seq + 1;
+        let next = self.vset.borrow().last_seq + 1;
 
         batch.insert_into_memtable(next, &mut self.mem);
         log.add_record(&batch.encode(next))?;
         if sync {
             log.flush()?;
         }
-        self.vset.last_seq += entries;
-
+        self.vset.borrow_mut().last_seq += entries;
         Ok(())
     }
 
@@ -387,7 +392,7 @@ impl DB {
 impl DB {
     // READ //
     fn get_internal(&mut self, seq: SequenceNumber, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        let current = self.vset.current();
+        let current = self.current();
         let mut current = current.borrow_mut();
 
         let lkey = LookupKey::new(key, seq);
@@ -414,24 +419,67 @@ impl DB {
     /// get_at reads the value for a given key at or before snapshot. If returns Ok(None) if the
     /// entry wasn't found, and Err(_) if an error occurred.
     pub fn get_at(&mut self, snapshot: &Snapshot, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        if let Some(seq) = self.snaps.sequence_at(snapshot) {
-            self.get_internal(seq, key)
-        } else {
-            err(
-                StatusCode::InvalidArgument,
-                "get_at: snapshot does not exist",
-            )
-        }
+        self.get_internal(snapshot.sequence(), key)
     }
 
     /// get is a simplified version of get_at(), translating errors to None.
     pub fn get(&mut self, key: &[u8]) -> Option<Vec<u8>> {
-        let seq = self.vset.last_seq;
+        let seq = self.vset.borrow().last_seq;
         if let Ok(v) = self.get_internal(seq, key) {
             v
         } else {
             None
         }
+    }
+}
+
+impl DB {
+    // ITERATOR //
+    /// new_iter returns a DBIterator over the current state of the database. The iterator will not
+    /// return elements added to the database after its creation.
+    pub fn new_iter(&mut self) -> Result<DBIterator> {
+        let snapshot = self.get_snapshot();
+        self.new_iter_at(snapshot)
+    }
+
+    // new_iter at returns a DBIterator at the supplied snapshot.
+    pub fn new_iter_at(&mut self, ss: Snapshot) -> Result<DBIterator> {
+        Ok(DBIterator::new(
+            self.opt.cmp.clone(),
+            self.vset.clone(),
+            self.merge_iterators()?,
+            ss,
+        ))
+    }
+
+    /// merge_iterators produces a MergingIter merging the entries in the memtable, the immutable
+    /// memtable, and table files from all levels.
+    fn merge_iterators(&mut self) -> Result<MergingIter> {
+        let mut iters: Vec<Box<dyn LdbIterator>> = vec![];
+        if self.mem.len() > 0 {
+            iters.push(Box::new(self.mem.iter()));
+        }
+        if let Some(ref imm) = self.imm {
+            if imm.len() > 0 {
+                iters.push(Box::new(imm.iter()));
+            }
+        }
+
+        // Add iterators for table files.
+        let current = self.current();
+        let current = current.borrow();
+        iters.extend(current.new_iters()?);
+
+        Ok(MergingIter::new(self.internal_cmp.clone(), iters))
+    }
+}
+
+impl DB {
+    // SNAPSHOTS //
+
+    /// Returns a snapshot at the current state. The snapshot is released automatically on Drop.
+    pub fn get_snapshot(&mut self) -> Snapshot {
+        self.snaps.new_snapshot(self.vset.borrow().last_seq)
     }
 }
 
@@ -444,21 +492,12 @@ impl DB {
 
     /// Trigger a compaction based on where this key is located in the different levels.
     fn record_read_sample(&mut self, k: InternalKey) {
-        let current = self.vset.current();
+        let current = self.current();
         if current.borrow_mut().record_read_sample(k) {
             if let Err(e) = self.maybe_do_compaction() {
                 log!(self.opt.log, "Error while triggering compaction: {}", e);
             }
         }
-    }
-}
-
-impl DB {
-    // SNAPSHOTS //
-
-    /// Returns a snapshot at the current state. The snapshot is released automatically on Drop.
-    pub fn get_snapshot(&mut self) -> Snapshot {
-        self.snaps.new_snapshot(self.vset.last_seq)
     }
 }
 
@@ -472,13 +511,13 @@ impl DB {
             Ok(())
         } else {
             // Create new memtable.
-            let logn = self.vset.new_file_number();
+            let logn = self.vset.borrow_mut().new_file_number();
             let logf = self
                 .opt
                 .env
                 .open_writable_file(Path::new(&log_file_name(&self.name, logn)));
             if logf.is_err() {
-                self.vset.reuse_file_number(logn);
+                self.vset.borrow_mut().reuse_file_number(logn);
                 Err(logf.err().unwrap())
             } else {
                 self.log = Some(LogWriter::new(logf.unwrap()));
@@ -494,7 +533,7 @@ impl DB {
 
     /// maybe_do_compaction starts a blocking compaction if it makes sense.
     fn maybe_do_compaction(&mut self) -> Result<()> {
-        if self.imm.is_none() && !self.vset.needs_compaction() {
+        if self.imm.is_none() && !self.vset.borrow().needs_compaction() {
             return Ok(());
         }
         self.start_compaction()
@@ -508,7 +547,7 @@ impl DB {
             return self.compact_memtable();
         }
 
-        let compaction = self.vset.pick_compaction();
+        let compaction = self.vset.borrow_mut().pick_compaction();
         if compaction.is_none() {
             return Ok(());
         }
@@ -525,7 +564,7 @@ impl DB {
             compaction.edit().delete_file(level, num);
             compaction.edit().add_file(level + 1, f);
 
-            if let Err(e) = self.vset.log_and_apply(compaction.into_edit()) {
+            if let Err(e) = self.vset.borrow_mut().log_and_apply(compaction.into_edit()) {
                 log!(self.opt.log, "trivial move failed: {}", e);
                 Err(e)
             } else {
@@ -537,7 +576,11 @@ impl DB {
                     level,
                     level + 1
                 );
-                log!(self.opt.log, "Summary: {}", self.vset.current_summary());
+                log!(
+                    self.opt.log,
+                    "Summary: {}",
+                    self.vset.borrow().current_summary()
+                );
                 Ok(())
             }
         } else {
@@ -550,7 +593,7 @@ impl DB {
             log!(
                 self.opt.log,
                 "Compaction finished: {}",
-                self.vset.current_summary()
+                self.vset.borrow().current_summary()
             );
 
             self.delete_obsolete_files()
@@ -560,7 +603,7 @@ impl DB {
     fn compact_memtable(&mut self) -> Result<()> {
         assert!(self.imm.is_some());
         let mut ve = VersionEdit::new();
-        let base = self.vset.current();
+        let base = self.current();
 
         let imm = self.imm.take().unwrap();
         if let Err(e) = self.write_l0_table(&imm, &mut ve, Some(&base.borrow())) {
@@ -568,7 +611,7 @@ impl DB {
             return Err(e);
         }
         ve.set_log_num(self.log_num.unwrap_or(0));
-        self.vset.log_and_apply(ve)?;
+        self.vset.borrow_mut().log_and_apply(ve)?;
         if let Err(e) = self.delete_obsolete_files() {
             log!(self.opt.log, "Error deleting obsolete files: {}", e);
         }
@@ -583,14 +626,14 @@ impl DB {
         base: Option<&Version>,
     ) -> Result<()> {
         let start_ts = self.opt.env.micros();
-        let num = self.vset.new_file_number();
+        let num = self.vset.borrow_mut().new_file_number();
         log!(self.opt.log, "Start write of L0 table {:06}", num);
         let fmd = build_table(&self.name, &self.opt, memt.iter(), num)?;
         log!(self.opt.log, "L0 table {:06} has {} bytes", num, fmd.size);
 
         // Wrote empty table.
         if fmd.size == 0 {
-            self.vset.reuse_file_number(num);
+            self.vset.borrow_mut().reuse_file_number(num);
             return Ok(());
         }
 
@@ -640,15 +683,15 @@ impl DB {
             cs.compaction.num_inputs(1),
             cs.compaction.level() + 1
         );
-        assert!(self.vset.num_level_files(cs.compaction.level()) > 0);
+        assert!(self.vset.borrow().num_level_files(cs.compaction.level()) > 0);
         assert!(cs.builder.is_none());
         cs.smallest_seq = if self.snaps.empty() {
-            self.vset.last_seq
+            self.vset.borrow().last_seq
         } else {
             self.snaps.oldest()
         };
 
-        let mut input = self.vset.make_input_iterator(&cs.compaction);
+        let mut input = self.vset.borrow().make_input_iterator(&cs.compaction);
         input.seek_to_first();
 
         let (mut key, mut val) = (vec![], vec![]);
@@ -692,7 +735,7 @@ impl DB {
             }
 
             if cs.builder.is_none() {
-                let fnum = self.vset.new_file_number();
+                let fnum = self.vset.borrow_mut().new_file_number();
                 let fmd = FileMetaData {
                     num: fnum,
                     ..Default::default()
@@ -758,7 +801,8 @@ impl DB {
         cs.current_output().size = bytes;
 
         if entries > 0 {
-            // Verify that table can be used.
+            // Verify that table can be used. (Separating get_table() because borrowing in an if
+            // let expression is dangerous).
             if let Err(e) = self.cache.borrow_mut().get_table(output_num) {
                 log!(self.opt.log, "New table can't be read: {}", e);
                 return Err(e);
@@ -789,7 +833,9 @@ impl DB {
         for output in &cs.outputs {
             cs.compaction.edit().add_file(level + 1, output.clone());
         }
-        self.vset.log_and_apply(cs.compaction.into_edit())
+        self.vset
+            .borrow_mut()
+            .log_and_apply(cs.compaction.into_edit())
     }
 }
 
@@ -927,8 +973,73 @@ fn open_info_log<E: Env + ?Sized>(env: &E, db: &str) -> Logger {
 }
 
 #[cfg(test)]
+pub mod testutil {
+    use std::path::Path;
+
+    use crate::{
+        log::LogWriter,
+        types::{FileNum, NUM_LEVELS},
+        version::testutil::make_version,
+        version_edit::VersionEdit,
+        version_set::{manifest_file_name, set_current_file},
+    };
+
+    use super::DB;
+
+    /// build-db creates a database filled with the tables created by make_version().
+    pub fn build_db() -> DB {
+        let name = "db";
+        let (v, opt) = make_version();
+        let mut ve = VersionEdit::new();
+        ve.set_comparator_name(opt.cmp.id());
+        ve.set_log_num(0);
+        // 9 files + 1 manifest we write below.
+        ve.set_next_file(11);
+        // 26 entries in these tables.
+        ve.set_last_seq(26);
+
+        for l in 0..NUM_LEVELS {
+            for f in &v.files[l] {
+                ve.add_file(l, f.borrow().clone());
+            }
+        }
+
+        let manifest = manifest_file_name(name, 11);
+        let manifest_file = opt.env.open_writable_file(Path::new(&manifest)).unwrap();
+        let mut lw = LogWriter::new(manifest_file);
+        lw.add_record(&ve.encode()).unwrap();
+        lw.flush().unwrap();
+        set_current_file(&opt.env, name, 11).unwrap();
+        DB::open(name, opt).unwrap()
+    }
+
+    /// set file_to_compact ensures that the specified table file will be compacted next.
+    pub fn set_file_to_compact(db: &mut DB, num: FileNum) {
+        let v = db.current();
+        let mut v = v.borrow_mut();
+
+        let mut ftc = None;
+        for l in 0..NUM_LEVELS {
+            for f in &v.files[l] {
+                if f.borrow().num == num {
+                    ftc = Some((f.clone(), l));
+                }
+            }
+        }
+        if let Some((f, l)) = ftc {
+            v.file_to_compact = Some(f);
+            v.file_to_compact_lvl = l;
+        } else {
+            panic!("file number not found");
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use std::mem;
+
+    use tests::testutil::{build_db, set_file_to_compact};
 
     use crate::{
         error::Status,
@@ -1050,7 +1161,7 @@ mod tests {
             assert!(env.exists(Path::new("db/000003.ldb")).unwrap());
             assert!(env.exists(Path::new("db/000004.log")).unwrap());
             // Check that entry exists and is correct. Phew, long call chain!
-            let current = db.vset.current();
+            let current = db.current();
             log!(opt.log, "files: {:?}", current.borrow().files);
             assert_eq!(
                 "def".as_bytes(),
@@ -1165,55 +1276,6 @@ mod tests {
         }
     }
 
-    /// build_db creates a database filled with the tables reated by make_version().
-    fn build_db() -> DB {
-        let name = "db";
-        let (v, opt) = make_version();
-        let mut ve = VersionEdit::new();
-        ve.set_comparator_name(opt.cmp.id());
-        ve.set_log_num(0);
-        // 9 files + 1 manifest we write below.
-        ve.set_next_file(11);
-        // 26 entries in these tables.
-        ve.set_last_seq(26);
-
-        for l in 0..NUM_LEVELS {
-            for f in &v.files[l] {
-                ve.add_file(l, f.borrow().clone());
-            }
-        }
-
-        let manifest = manifest_file_name(name, 11);
-        let manifest_file = opt.env.open_writable_file(Path::new(&manifest)).unwrap();
-        let mut lw = LogWriter::new(manifest_file);
-        lw.add_record(&ve.encode()).unwrap();
-        lw.flush().unwrap();
-        set_current_file(&opt.env, name, 11).unwrap();
-
-        DB::open(name, opt).unwrap()
-    }
-
-    /// set_file_to_compact ensures that the specified table file will be compacted next.
-    fn set_file_to_compact(db: &mut DB, num: FileNum) {
-        let vset = db.vset.current();
-        let mut v = vset.borrow_mut();
-
-        let mut ftc = None;
-        for l in 0..NUM_LEVELS {
-            for f in &v.files[l] {
-                if f.borrow().num == num {
-                    ftc = Some((f.clone(), l));
-                }
-            }
-        }
-        if let Some((f, l)) = ftc {
-            v.file_to_compact = Some(f);
-            v.file_to_compact_lvl = l;
-        } else {
-            panic!("file number not found");
-        }
-    }
-
     #[allow(unused_variables)]
     #[test]
     #[ignore]
@@ -1230,9 +1292,11 @@ mod tests {
     fn test_db_impl_get_from_table() {
         let mut db = build_db();
 
-        assert_eq!(26, db.vset.last_seq);
+        assert_eq!(26, db.vset.borrow().last_seq);
 
+        let old_ss = db.get_snapshot();
         db.put("xyz".as_bytes(), "123".as_bytes()).unwrap();
+        assert!(db.get_at(&old_ss, "xyz".as_bytes()).unwrap().is_none());
 
         // memtable get
         assert_eq!(
@@ -1299,7 +1363,7 @@ mod tests {
         assert!(db.opt.env.exists(Path::new("db/000004.ldb")).unwrap());
 
         {
-            let v = db.vset.current();
+            let v = db.current();
             let mut v = v.borrow_mut();
             v.file_to_compact = Some(v.files[2][0].clone());
             v.file_to_compact_lvl = 2;
@@ -1308,7 +1372,7 @@ mod tests {
         db.maybe_do_compaction().unwrap();
 
         {
-            let v = db.vset.current();
+            let v = db.current();
             let v = v.borrow_mut();
             assert_eq!(1, v.files[3].len());
         }
@@ -1346,8 +1410,8 @@ mod tests {
         v.compaction_level = Some(1);
 
         let mut db = DB::new("db", opt.clone());
-        db.vset.add_version(v);
-        db.vset.next_file_num = 10;
+        db.vset.borrow_mut().add_version(v);
+        db.vset.borrow_mut().next_file_num = 10;
 
         let _ = db.start_compaction();
 
@@ -1355,7 +1419,7 @@ mod tests {
         assert!(opt.env.exists(Path::new("db/000010.ldb")).unwrap());
         assert_eq!(375, opt.env.size_of(Path::new("db/000010.ldb")).unwrap());
 
-        let v = db.vset.current();
+        let v = db.current();
         assert_eq!(0, v.borrow().files[1].len());
         assert_eq!(2, v.borrow().files[2].len());
     }
@@ -1369,15 +1433,15 @@ mod tests {
         v.file_to_compact_lvl = 2;
 
         let mut db = DB::new("db", opt.clone());
-        db.vset.add_version(v);
-        db.vset.next_file_num = 10;
+        db.vset.borrow_mut().add_version(v);
+        db.vset.borrow_mut().next_file_num = 10;
 
         let _ = db.start_compaction();
         assert!(opt.env.exists(Path::new("db/000006.ldb")).unwrap());
         assert!(!opt.env.exists(Path::new("db/000010.ldb")).unwrap());
         assert_eq!(218, opt.env.size_of(Path::new("db/000006.ldb")).unwrap());
 
-        let v = db.vset.current();
+        let v = db.current();
         assert_eq!(1, v.borrow().files[2].len());
         assert_eq!(3, v.borrow().files[3].len());
     }

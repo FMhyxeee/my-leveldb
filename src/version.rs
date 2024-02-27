@@ -335,7 +335,7 @@ impl Version {
 
     /// new_iters returns a set of iterators that can be merged to yield all entries in this
     /// version
-    fn new_iters(&self) -> Result<Vec<Box<dyn LdbIterator>>> {
+    pub fn new_iters(&self) -> Result<Vec<Box<dyn LdbIterator>>> {
         let mut iters: Vec<Box<dyn LdbIterator>> = vec![];
         for f in &self.files[0] {
             iters.push(Box::new(
@@ -624,7 +624,7 @@ pub mod testutil {
         let t2 = write_table(&env, f2, 4, 2);
         // Level 1
         let f3: &[(&[u8], &[u8])] = &[
-            ("aaa".as_bytes(), "val1".as_bytes()),
+            ("aaa".as_bytes(), "val0".as_bytes()),
             ("cab".as_bytes(), "val2".as_bytes()),
             ("cba".as_bytes(), "val3".as_bytes()),
         ];
