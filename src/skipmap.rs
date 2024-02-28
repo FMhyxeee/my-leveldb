@@ -142,7 +142,7 @@ impl InnerSkipMap {
         }
         unsafe {
             if current.is_null()
-                || (*current).key.is_empty()
+                || current == self.head.as_ref()
                 || self.cmp.cmp(&(*current).key, key) == Ordering::Less
             {
                 None
@@ -179,7 +179,7 @@ impl InnerSkipMap {
 
         unsafe {
             if current.is_null()
-                || (*current).key.is_empty()
+                || current == self.head.as_ref()
                 || self.cmp.cmp(&(*current).key, key) != Ordering::Less
             {
                 None
@@ -330,7 +330,7 @@ impl LdbIterator for SkipMapIter {
     }
 
     fn valid(&self) -> bool {
-        unsafe { !(*self.current).key.is_empty() }
+        self.current != self.map.borrow().head.as_ref()
     }
 
     fn current(&self, key: &mut Vec<u8>, val: &mut Vec<u8>) -> bool {
