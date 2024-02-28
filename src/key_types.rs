@@ -9,7 +9,7 @@ use integer_encoding::{FixedInt, FixedIntWriter, VarInt, VarIntWriter};
 // TODO: At some point, convert those into actual types with conversion between them, That's a lot
 // of boilerpalce, but increases type safety.
 
-#[derive(Debug, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialOrd, PartialEq)]
 pub enum ValueType {
     TypeDeletion = 0,
     TypeValue = 1,
