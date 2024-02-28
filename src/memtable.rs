@@ -3,7 +3,9 @@ use std::rc::Rc;
 
 use crate::{
     cmp::{Cmp, MemtableKeyCmp},
-    key_types::{build_memtable_key, parse_memtable_key, LookupKey, UserKey, ValueType},
+    key_types::{
+        build_memtable_key, parse_internal_key, parse_memtable_key, LookupKey, UserKey, ValueType,
+    },
     skipmap::{SkipMap, SkipMapIter},
     types::{current_key_val, LdbIterator, SequenceNumber},
 };
@@ -12,7 +14,6 @@ use crate::{
 /// MemTable uses MemtablKeys internally, that is, it stores key and value in the [Skipmap] key.
 pub struct MemTable {
     map: SkipMap,
-    cmp: Rc<Box<dyn Cmp>>,
 }
 
 impl MemTable {
@@ -25,8 +26,7 @@ impl MemTable {
     /// Doesn't wrap the comparator in a MemtableKeyCmp.
     fn new_raw(cmp: Rc<Box<dyn Cmp>>) -> MemTable {
         MemTable {
-            map: SkipMap::new(cmp.clone()),
-            cmp,
+            map: SkipMap::new(cmp),
         }
     }
 
@@ -48,7 +48,6 @@ impl MemTable {
         iter.seek(key.memtable_key());
 
         if let Some((foundkey, _)) = current_key_val(&iter) {
-            // let (lkeylen, lkeyoff, _, _, _) = parse_memtable_key(key.memtable_key());
             let (fkeylen, fkeyoff, tag, vallen, valoff) = parse_memtable_key(&foundkey);
 
             // Compare user key -- if equal, proceed
@@ -72,7 +71,8 @@ impl MemTable {
 }
 
 /// MemtableIterator is an iterator over a MemTable. It is mostly concerned with converting to and
-/// from the MemtableKey format used in the inner map (from/to InternalKey format).
+/// from the MemtableKey format used in the inner map; all-taking or -returning methods deal with
+/// InternalKeys.
 pub struct MemtableIterator {
     skipmapiter: SkipMapIter,
 }
@@ -128,6 +128,7 @@ impl LdbIterator for MemtableIterator {
         self.skipmapiter.valid()
     }
 
+    /// current places the current key (in InternalKey format) and value into the supplied vectors.
     fn current(&self, key: &mut Vec<u8>, val: &mut Vec<u8>) -> bool {
         if !self.valid() {
             return false;
@@ -151,12 +152,14 @@ impl LdbIterator for MemtableIterator {
             panic!("should not happen");
         }
     }
-    fn seek(&mut self, to: &[u8]) {
-        // We need to assemble the correct memtable key from the supplied InternalKey.
-        let seq = u64::decode_fixed(&to[to.len() - 8..]);
-        let key = LookupKey::new(&to[0..to.len() - 8], seq);
 
-        self.skipmapiter.seek(key.memtable_key());
+    /// seek takes an InternalKey.
+    fn seek(&mut self, to: &[u8]) {
+        // Assemble the correct memtable key from the supplied InternalKey.
+        let (_, seq, ukey) = parse_internal_key(to);
+
+        self.skipmapiter
+            .seek(LookupKey::new(ukey, seq).memtable_key());
     }
 }
 
@@ -173,7 +176,7 @@ fn shift_left(s: &mut Vec<u8>, mid: usize) {
 mod tests {
 
     use crate::{
-        key_types::parse_tag,
+        key_types::{parse_tag, truncate_to_userkey},
         options,
         test_util::{test_iterator_properties, LdbIteratorIter},
     };
@@ -215,7 +218,7 @@ mod tests {
 
     #[test]
     fn test_memtable_add() {
-        let mut mt = MemTable::new_raw(options::for_test().cmp);
+        let mut mt = MemTable::new(options::for_test().cmp);
         mt.add(
             123,
             ValueType::TypeValue,
@@ -225,7 +228,11 @@ mod tests {
 
         assert_eq!(
             mt.map.iter().next().unwrap().0,
-            vec![11, 97, 98, 99, 1, 123, 0, 0, 0, 0, 0, 0, 3, 49, 50, 51].as_slice()
+            vec![11, 97, 98, 99, 1, 123, 0, 0, 0, 0, 0, 0, 3, 49, 50, 51]
+        );
+        assert_eq!(
+            mt.iter().next().unwrap().0,
+            &[97, 98, 99, 1, 123, 0, 0, 0, 0, 0, 0]
         );
     }
 
@@ -289,7 +296,35 @@ mod tests {
     }
 
     #[test]
-    fn test_memtable_iterator_fwd_seek() {
+    #[ignore]
+    fn test_memtable_iterator_seek() {
+        let mt = get_memtable();
+        let mut iter = mt.iter();
+
+        assert!(!iter.valid());
+
+        iter.seek(LookupKey::new("abc".as_bytes(), 400).internal_key());
+        let (mut gotkey, gotval) = current_key_val(&iter).unwrap();
+        truncate_to_userkey(&mut gotkey);
+        assert_eq!(
+            ("abc".as_bytes(), "123".as_bytes()),
+            (gotkey.as_slice(), gotval.as_slice())
+        );
+
+        iter.seek(LookupKey::new("xxx".as_bytes(), 400).internal_key());
+        assert!(!iter.valid());
+
+        iter.seek(LookupKey::new("abd".as_bytes(), 400).internal_key());
+        let (mut gotkey, gotval) = current_key_val(&iter).unwrap();
+        truncate_to_userkey(&mut gotkey);
+        assert_eq!(
+            ("abd".as_bytes(), "124".as_bytes()),
+            (gotkey.as_slice(), gotval.as_slice())
+        );
+    }
+
+    #[test]
+    fn test_memtable_iterator_fwd() {
         let mt = get_memtable();
         let mut iter = mt.iter();
 
@@ -367,10 +402,10 @@ mod tests {
     #[ignore]
     fn test_memtable_iterator_behavior() {
         let mut mt = MemTable::new(options::for_test().cmp);
-        let entries = [
+        let entries = vec![
             (115, "abc", "122"),
-            (120, "abc", "123"),
-            (121, "abd", "124"),
+            (120, "abd", "123"),
+            (121, "abe", "124"),
             (123, "abf", "126"),
         ];
 
