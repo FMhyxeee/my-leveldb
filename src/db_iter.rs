@@ -306,6 +306,20 @@ mod tests {
 
     #[test]
     #[ignore]
+    fn db_iter_reset() {
+        let mut db = build_db();
+        let mut iter = db.new_iter().unwrap();
+
+        assert!(iter.advance());
+        assert!(iter.valid());
+        iter.reset();
+        assert!(!iter.valid());
+        assert!(iter.advance());
+        assert!(iter.valid());
+    }
+
+    #[test]
+    #[ignore]
     fn db_iter_test_forward_backword() {
         let mut db = build_db();
         let mut iter = db.new_iter().unwrap();
@@ -325,6 +339,7 @@ mod tests {
             Direction::Forward,
             Direction::Forward,
             Direction::Forward,
+            Direction::Reverse,
             Direction::Reverse,
             Direction::Reverse,
             Direction::Forward,
@@ -372,5 +387,11 @@ mod tests {
             iter.seek(k);
             assert_eq!((k.to_vec(), v.to_vec()), current_key_val(&iter).unwrap());
         }
+
+        // seek past last.
+        iter.seek(b"xxx");
+        assert!(!iter.valid());
+        iter.seek(b"aab");
+        assert!(iter.valid());
     }
 }
