@@ -105,8 +105,7 @@ impl Version {
 
         for (level, item) in levels.iter_mut().enumerate().take(NUM_LEVELS).skip(1) {
             let files = &self.files[level];
-            let ix = find_file(&icmp, files, ikey);
-            if ix < files.len() {
+            if let Some(ix) = find_file(&icmp, files, ikey) {
                 let f = files[ix].borrow();
                 let fsmallest = parse_internal_key(&f.smallest).2;
                 if self.user_cmp.cmp(ukey, fsmallest) >= Ordering::Equal {
@@ -419,31 +418,35 @@ impl LdbIterator for VersionIter {
             false
         }
     }
+
     fn seek(&mut self, key: &[u8]) {
-        let ix = find_file(&self.cmp, &self.files, key);
-        assert!(ix < self.files.len());
-        if let Ok(tbl) = self
-            .cache
-            .borrow_mut()
-            .get_table(self.files[ix].borrow().num)
-        {
-            let mut iter = tbl.iter();
-            iter.seek(key);
-            if iter.valid() {
-                self.current_ix = ix;
-                self.current = Some(iter);
-                return;
+        if let Some(ix) = find_file(&self.cmp, &self.files, key) {
+            if let Ok(tbl) = self
+                .cache
+                .borrow_mut()
+                .get_table(self.files[ix].borrow().num)
+            {
+                let mut iter = tbl.iter();
+                iter.seek(key);
+                if iter.valid() {
+                    self.current_ix = ix;
+                    self.current = Some(iter);
+                    return;
+                }
             }
         }
         self.reset();
     }
+
     fn reset(&mut self) {
         self.current = None;
         self.current_ix = 0;
     }
+
     fn valid(&self) -> bool {
         self.current.as_ref().map(|t| t.valid()).unwrap_or(false)
     }
+
     fn prev(&mut self) -> bool {
         if let Some(ref mut t) = self.current {
             if t.prev() {
@@ -487,8 +490,9 @@ fn key_is_before_file(cmp: &InternalKeyCmp, key: UserKey, f: &FileMetaHandle) ->
 }
 
 /// find_file returns the index of the file in files that potentially contains the internal key
-/// key. files must not overlap and be ordered ascendingly.
-fn find_file(cmp: &InternalKeyCmp, files: &[FileMetaHandle], key: InternalKey) -> usize {
+/// key. files must not overlap and be ordered ascendingly. If no file can contain the key, None is
+/// returned.
+fn find_file(cmp: &InternalKeyCmp, files: &[FileMetaHandle], key: InternalKey) -> Option<usize> {
     let (mut left, mut right) = (0, files.len());
     while left < right {
         let mid = (left + right) / 2;
@@ -498,7 +502,11 @@ fn find_file(cmp: &InternalKeyCmp, files: &[FileMetaHandle], key: InternalKey) -
             right = mid;
         }
     }
-    right
+    if right < files.len() {
+        Some(right)
+    } else {
+        None
+    }
 }
 
 /// some_file_overlaps_range_disjoint returns true if any of the given disjoint files (i.e. level >
@@ -510,8 +518,7 @@ fn some_file_overlaps_range_disjoint(
     largest: UserKey,
 ) -> bool {
     let ikey = LookupKey::new(smallest, MAX_SEQUENCE_NUMBER);
-    let ix = find_file(cmp, files, ikey.internal_key());
-    if ix < files.len() {
+    if let Some(ix) = find_file(cmp, files, ikey.internal_key()) {
         !key_is_before_file(cmp, largest, &files[ix])
     } else {
         false
