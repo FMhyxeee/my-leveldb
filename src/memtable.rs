@@ -83,24 +83,10 @@ pub struct MemtableIterator {
 
 impl LdbIterator for MemtableIterator {
     fn advance(&mut self) -> bool {
-        // Make sure this is actually needed.
-        let (mut key, mut val) = (vec![], vec![]);
-        loop {
-            if !self.skipmapiter.advance() {
-                return false;
-            }
-            if self.skipmapiter.current(&mut key, &mut val) {
-                let (_, _, tag, _, _) = parse_memtable_key(&key);
-
-                if tag & 0xff == ValueType::TypeValue as u64 {
-                    return true;
-                } else {
-                    continue;
-                }
-            } else {
-                return false;
-            }
+        if !self.skipmapiter.advance() {
+            return false;
         }
+        self.skipmapiter.valid()
     }
 
     fn reset(&mut self) {
@@ -139,19 +125,15 @@ impl LdbIterator for MemtableIterator {
         }
 
         if self.skipmapiter.current(key, val) {
-            let (keylen, keyoff, tag, vallen, valoff) = parse_memtable_key(key);
+            let (keylen, keyoff, _, vallen, valoff) = parse_memtable_key(key);
 
-            if tag & 0xff == ValueType::TypeValue as u64 {
-                val.clear();
-                val.extend_from_slice(&key[valoff..valoff + vallen]);
-                // zero-allocation truncation.
-                shift_left(key, keyoff);
-                // Truncate key to key+tag.
-                key.truncate(keylen + u64::required_space());
-                true
-            } else {
-                panic!("should not happen");
-            }
+            val.clear();
+            val.extend_from_slice(&key[valoff..valoff + vallen]);
+            // zero-allocation truncation.
+            shift_left(key, keyoff);
+            // Truncate key to key+tag.
+            key.truncate(keylen + u64::required_space());
+            true
         } else {
             panic!("should not happen");
         }
@@ -339,7 +321,7 @@ mod tests {
             "122".as_bytes(),
             "124".as_bytes(),
             // deleted entry;
-            // "125".as_bytes(),
+            "125".as_bytes(),
             "126".as_bytes(),
         ];
 
