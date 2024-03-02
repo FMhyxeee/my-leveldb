@@ -408,7 +408,7 @@ mod tests {
     #[ignore]
     fn test_memtable_iterator_behavior() {
         let mut mt = MemTable::new(options::for_test().cmp);
-        let entries = vec![
+        let entries = [
             (115, "abc", "122"),
             (120, "abd", "123"),
             (121, "abe", "124"),
