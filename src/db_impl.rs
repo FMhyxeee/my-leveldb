@@ -730,6 +730,9 @@ impl DB {
                 // Parsing failed.
                 log!(self.opt.log, "Encountered seq=0 in key: {:?}", &key);
                 last_seq_for_key = MAX_SEQUENCE_NUMBER;
+                have_ukey = false;
+                current_ukey.clear();
+                input.advance();
                 continue;
             }
 
@@ -743,12 +746,18 @@ impl DB {
 
             // We can omit the key under the following conditions:
             if last_seq_for_key <= cs.smallest_seq {
+                last_seq_for_key = seq;
+                input.advance();
                 continue;
             }
+            // Entry is deletion; no older version is observable by any snapshot; and all entries
+            // in compacted levels with smaller sequence numbers will
             if ktyp == ValueType::TypeDeletion
                 && seq <= cs.smallest_seq
                 && cs.compaction.is_base_level_for(ukey)
             {
+                last_seq_for_key = seq;
+                input.advance();
                 continue;
             }
 
