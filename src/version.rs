@@ -706,7 +706,7 @@ mod tests {
         merging_iter::MergingIter,
         options,
         test_util::{test_iterator_properties, LdbIteratorIter},
-        types::MAX_SEQUENCE_NUMBER,
+        types::{MAX_SEQUENCE_NUMBER, NUM_LEVELS},
         version::{
             key_is_after_file, key_is_before_file, some_file_overlaps_range,
             some_file_overlaps_range_disjoint, testutil::new_file,
@@ -799,6 +799,29 @@ mod tests {
                 Ok(None) => assert!(c.2.as_ref().unwrap().as_ref().is_none()),
                 Err(_) => assert!(c.2.is_err()),
             }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn test_version_get_overlapping_basic() {
+        let v = make_version().0;
+
+        // Overlapped by tables 1 and 2.
+        let ol = v.get_overlapping(LookupKey::new(b"aay", 50).internal_key());
+        // Check that sorting order is newest-first in L0.
+        assert_eq!(2, ol[0][0].borrow().num);
+        // Check that table from L1 matches.
+        assert_eq!(3, ol[1][0].borrow().num);
+
+        let ol = v.get_overlapping(LookupKey::new(b"cb", 50).internal_key());
+        assert_eq!(3, ol[1][0].borrow().num);
+        assert_eq!(6, ol[2][0].borrow().num);
+
+        let ol = v.get_overlapping(LookupKey::new(b"x", 50).internal_key());
+
+        for item in ol.iter().take(NUM_LEVELS) {
+            assert!(item.is_empty());
         }
     }
 
