@@ -9,7 +9,7 @@ use crate::{
     filter::{self, BoxedFilterPolicy},
     infolog::{self, Logger},
     mem_env::MemEnv,
-    types::{share, SequenceNumber, Shared},
+    types::{share, Shared},
 };
 
 const KB: usize = 1 << 10;
@@ -104,28 +104,4 @@ impl Options {
     pub fn set_env(&mut self, e: Box<dyn Env>) {
         self.env = Rc::new(e);
     }
-}
-
-/// Supplied to DB read operations
-/// Deprecated: Will soon be removed to reduce complexity.
-pub struct ReadOptions {
-    pub verify_checksums: bool,
-    pub fill_cache: bool,
-    pub snapshot: Option<SequenceNumber>,
-}
-
-impl Default for ReadOptions {
-    fn default() -> Self {
-        Self {
-            verify_checksums: true,
-            fill_cache: true,
-            snapshot: None,
-        }
-    }
-}
-
-/// Supplied to write operations
-#[derive(Default)]
-pub struct WriteOptions {
-    pub sync: bool,
 }
