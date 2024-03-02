@@ -1033,12 +1033,12 @@ pub mod testutil {
             }
         }
 
-        let manifest = manifest_file_name(name, 11);
+        let manifest = manifest_file_name(name, 10);
         let manifest_file = opt.env.open_writable_file(Path::new(&manifest)).unwrap();
         let mut lw = LogWriter::new(manifest_file);
         lw.add_record(&ve.encode()).unwrap();
         lw.flush().unwrap();
-        set_current_file(&opt.env, name, 11).unwrap();
+        set_current_file(&opt.env, name, 10).unwrap();
         DB::open(name, opt).unwrap()
     }
 
@@ -1458,22 +1458,18 @@ mod tests {
     #[test]
     #[ignore]
     fn test_db_impl_compaction() {
-        let (mut v, opt) = make_version();
+        let mut db = build_db();
+        let v = db.current();
+        v.borrow_mut().compaction_score = Some(2.0);
+        v.borrow_mut().compaction_level = Some(1);
 
-        // Trigger size compaction at level 1.
-        v.compaction_score = Some(2.0);
-        v.compaction_level = Some(1);
+        db.start_compaction().unwrap();
 
-        let mut db = DB::new("db", opt.clone());
-        db.vset.borrow_mut().add_version(v);
-        db.vset.borrow_mut().next_file_num = 10;
+        assert!(!db.opt.env.exists(Path::new("db/000003.ldb")).unwrap());
+        assert!(db.opt.env.exists(Path::new("db/000010.ldb")).unwrap());
+        assert_eq!(345, db.opt.env.size_of(Path::new("db/000010.ldb")).unwrap());
 
-        let _ = db.start_compaction();
-
-        assert!(!opt.env.exists(Path::new("db/000003.ldb")).unwrap());
-        assert!(opt.env.exists(Path::new("db/000010.ldb")).unwrap());
-        assert_eq!(375, opt.env.size_of(Path::new("db/000010.ldb")).unwrap());
-
+        // New current version.
         let v = db.current();
         assert_eq!(0, v.borrow().files[1].len());
         assert_eq!(2, v.borrow().files[2].len());
