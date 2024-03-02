@@ -422,7 +422,7 @@ mod tests {
         let mut db = build_db();
 
         db.put(b"xyz", b"123").unwrap();
-        db.delete(b"xyz", true).unwrap();
+        db.delete(b"xyz").unwrap();
 
         let mut iter = db.new_iter().unwrap();
         let must_not_appear = b"xyz";

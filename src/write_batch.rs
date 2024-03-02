@@ -21,6 +21,12 @@ pub struct WriteBatch {
     sync: bool,
 }
 
+impl Default for WriteBatch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WriteBatch {
     pub fn new() -> WriteBatch {
         let mut v = Vec::with_capacity(128);

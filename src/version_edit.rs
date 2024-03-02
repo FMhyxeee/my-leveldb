@@ -72,6 +72,12 @@ pub struct VersionEdit {
     pub new_files: Vec<(usize, FileMetaData)>,
 }
 
+impl Default for VersionEdit {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VersionEdit {
     pub fn new() -> VersionEdit {
         VersionEdit {
