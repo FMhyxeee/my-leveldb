@@ -359,14 +359,14 @@ impl DB {
     // WRITE //
 
     /// put adds a single entry.
-    fn put(&mut self, k: &[u8], v: &[u8]) -> Result<()> {
+    pub fn put(&mut self, k: &[u8], v: &[u8]) -> Result<()> {
         let mut batch = WriteBatch::new();
         batch.put(k, v);
         self.write(batch, false)
     }
 
     ///delete deletes a single entry.
-    fn delete(&mut self, k: &[u8], sync: bool) -> Result<()> {
+    pub fn delete(&mut self, k: &[u8], sync: bool) -> Result<()> {
         let mut wb = WriteBatch::new();
         wb.delete(k);
         self.write(wb, sync)
@@ -374,7 +374,7 @@ impl DB {
 
     /// write writes an entries WriteBatch. sync determines whether the write should be flushed to
     /// disk.
-    fn write(&mut self, mut batch: WriteBatch, sync: bool) -> Result<()> {
+    pub fn write(&mut self, mut batch: WriteBatch, sync: bool) -> Result<()> {
         assert!(self.log.is_some());
         let entries = batch.count() as u64;
         let log = self.log.as_mut().unwrap();
@@ -390,7 +390,7 @@ impl DB {
     }
 
     /// flush makes sure that all pending changes (e.g. from put()) are stored on disk.
-    fn flush(&mut self) -> Result<()> {
+    pub fn flush(&mut self) -> Result<()> {
         assert!(self.log.is_some());
         self.log.as_mut().unwrap().flush()
     }
