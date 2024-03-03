@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 mod block;
+mod blockbuilder;
 mod blockhandle;
 mod cache;
 mod cmp;

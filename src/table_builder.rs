@@ -3,7 +3,8 @@ use integer_encoding::FixedInt;
 use std::{cmp::Ordering, io::Write, rc::Rc};
 
 use crate::{
-    block::{BlockBuilder, BlockContents},
+    block::BlockContents,
+    blockbuilder::BlockBuilder,
     blockhandle::BlockHandle,
     cmp::InternalKeyCmp,
     error,
