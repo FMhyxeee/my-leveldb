@@ -278,7 +278,9 @@ fn random_period() -> isize {
 
 #[cfg(test)]
 mod tests {
-    use crate::{db_impl, test_util::LdbIteratorIter, types::current_key_val};
+    use std::collections::{HashMap, HashSet};
+
+    use crate::{db_impl, test_util::LdbIteratorIter, types::current_key_val, Options, DB};
 
     use super::*;
     use db_impl::testutil::*;
@@ -429,6 +431,54 @@ mod tests {
 
         for (k, _) in LdbIteratorIter::wrap(&mut iter) {
             assert!(k.as_slice() != must_not_appear);
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn db_iter_repeated_open_close() {
+        {
+            let mut db = build_db();
+
+            db.put(b"xx1", b"111").unwrap();
+            db.put(b"xx2", b"112").unwrap();
+            db.put(b"xx3", b"113").unwrap();
+            db.put(b"xx4", b"114").unwrap();
+            db.delete(b"xx2").unwrap();
+        }
+
+        {
+            let mut db = DB::open("db", Options::default()).unwrap();
+            db.put(b"xx4", b"222").unwrap();
+        }
+
+        {
+            let mut db = DB::open("db", Options::default()).unwrap();
+
+            let ss = db.get_snapshot();
+            // xx5 should not be visible.
+            db.put(b"xx5", b"223").unwrap();
+
+            let expected: HashMap<Vec<u8>, Vec<u8>> = HashMap::from_iter(
+                vec![
+                    (b"xx1".to_vec(), b"111".to_vec()),
+                    (b"xx4".to_vec(), b"222".to_vec()),
+                    (b"aaa".to_vec(), b"val1".to_vec()),
+                    (b"cab".to_vec(), b"val2".to_vec()),
+                ]
+                .into_iter(),
+            );
+            let non_existing: HashSet<Vec<u8>> = HashSet::from_iter(
+                vec![b"gca".to_vec(), b"xx2".to_vec(), b"xx5".to_vec()].into_iter(),
+            );
+
+            let mut iter = db.new_iter_at(ss.clone()).unwrap();
+            for (k, v) in LdbIteratorIter::wrap(&mut iter) {
+                if let Some(ev) = expected.get(&k) {
+                    assert_eq!(ev, &v);
+                }
+                assert!(!non_existing.contains(&k));
+            }
         }
     }
 }
