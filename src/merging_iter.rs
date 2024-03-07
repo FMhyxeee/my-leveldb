@@ -95,7 +95,10 @@ impl MergingIter {
     }
 
     fn find(&mut self, direction: SL) {
-        assert!(!self.iters.is_empty());
+        if self.iters.is_empty() {
+            // Iterator stays invalid.
+            return;
+        }
 
         let ord = if direction == SL::Smallest {
             Ordering::Less
