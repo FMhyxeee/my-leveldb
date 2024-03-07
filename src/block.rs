@@ -299,7 +299,7 @@ impl LdbIterator for BlockIter {
 mod tests {
 
     use crate::{
-        block_builder::BlockBuilder,
+        blockbuilder::BlockBuilder,
         options,
         test_util::{test_iterator_properties, LdbIteratorIter},
         types::current_key_val,

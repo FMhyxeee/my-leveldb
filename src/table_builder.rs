@@ -4,7 +4,7 @@ use std::{cmp::Ordering, io::Write, rc::Rc};
 
 use crate::{
     block::BlockContents,
-    block_builder::BlockBuilder,
+    blockbuilder::BlockBuilder,
     blockhandle::BlockHandle,
     cmp::InternalKeyCmp,
     error,
