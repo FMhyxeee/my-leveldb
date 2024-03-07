@@ -246,7 +246,6 @@ impl DB {
 
             batch.set_contents(&scratch);
             batch.insert_into_memtable(batch.sequence(), &mut mem);
-            save_manifest = true;
 
             let last_seq = batch.sequence() + batch.count() as u64 - 1;
             if last_seq > max_seq {
@@ -256,6 +255,7 @@ impl DB {
                 compactions += 1;
 
                 self.write_l0_table(&mem, ve, None)?;
+                save_manifest = true;
                 mem = MemTable::new(cmp.clone());
             }
             batch.clear();
@@ -1177,6 +1177,7 @@ mod tests {
             );
             let mut opt = opt.clone();
             opt.reuse_manifest = false;
+            opt.reuse_logs = false;
             let mut db = DB::open("db", opt.clone()).unwrap();
 
             println!(
