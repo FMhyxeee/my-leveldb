@@ -93,7 +93,7 @@ impl DB {
     /// Opens or creates* a new or existing database.
     ///
     /// *depending on the options set (create_if_missing, error_if_exists).
-    fn open(name: &str, opt: Options) -> Result<DB> {
+    pub fn open(name: &str, opt: Options) -> Result<DB> {
         let mut db = DB::new(name, opt);
         let mut ve = VersionEdit::new();
         let save_manifest = db.recover(&mut ve)?;
