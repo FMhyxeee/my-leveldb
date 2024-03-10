@@ -249,7 +249,7 @@ impl Version {
 
     /// overlap_in_level returns true if the specified level's files overlap the range [smallest;
     /// largest].
-    fn overlap_in_level(&self, level: usize, smallest: &UserKey, largest: &UserKey) -> bool {
+    pub fn overlap_in_level(&self, level: usize, smallest: &UserKey, largest: &UserKey) -> bool {
         assert!(level < NUM_LEVELS);
         if level == 0 {
             some_file_overlaps_range_disjoint(
@@ -306,9 +306,9 @@ impl Version {
             let mut inputs = vec![];
             for f_ in myself.files[level].iter() {
                 let f = f_.borrow();
-                let ((_, _, fsmallest), (_, _, flargest)) = (
-                    parse_internal_key(&f.smallest),
-                    parse_internal_key(&f.largest),
+                let (fsmallest, flargest) = (
+                    parse_internal_key(&f.smallest).2,
+                    parse_internal_key(&f.largest).2,
                 );
                 // Skip files that are not overlapping.
                 if (!ubegin.is_empty() && myself.user_cmp.cmp(flargest, &ubegin) == Ordering::Less)
