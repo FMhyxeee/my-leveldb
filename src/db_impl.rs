@@ -1,6 +1,6 @@
 use std::{
     cmp::Ordering,
-    io::{self, Write},
+    io::{self, BufWriter, Write},
     mem::swap,
     path::Path,
     rc::Rc,
@@ -47,7 +47,7 @@ pub struct DB {
     mem: MemTable,
     imm: Option<MemTable>,
 
-    log: Option<LogWriter<Box<dyn Write>>>,
+    log: Option<LogWriter<BufWriter<Box<dyn Write>>>>,
     log_num: Option<FileNum>,
     cache: Shared<TableCache>,
     vset: Shared<VersionSet>,
@@ -106,7 +106,7 @@ impl DB {
                 .env
                 .open_writable_file(Path::new(&log_file_name(&db.name, lognum)))?;
             ve.set_log_num(lognum);
-            db.log = Some(LogWriter::new(logfile));
+            db.log = Some(LogWriter::new(BufWriter::new(logfile)));
             db.log_num = Some(lognum);
         }
 
@@ -267,7 +267,7 @@ impl DB {
             log!(self.opt.log, "reusing log file {}", filename);
             let oldsize = self.opt.env.size_of(Path::new(&filename))?;
             let oldfile = self.opt.env.open_appendable_file(Path::new(&filename))?;
-            let lw = LogWriter::new_with_off(oldfile, oldsize);
+            let lw = LogWriter::new_with_off(BufWriter::new(oldfile), oldsize);
             self.log = Some(lw);
             self.log_num = Some(log_num);
             self.mem = mem;
@@ -538,7 +538,7 @@ impl DB {
                 self.vset.borrow_mut().reuse_file_number(logn);
                 Err(logf.err().unwrap())
             } else {
-                self.log = Some(LogWriter::new(logf.unwrap()));
+                self.log = Some(LogWriter::new(BufWriter::new(logf.unwrap())));
                 self.log_num = Some(logn);
 
                 let mut imm = MemTable::new(self.opt.cmp.clone());
@@ -944,7 +944,7 @@ pub fn build_table<I: LdbIterator>(
     // TODO: Replace with catch {} when available.
     let r = (|| -> Result<()> {
         let f = opt.env.open_writable_file(Path::new(&filename))?;
-        let f = io::BufWriter::new(f);
+        let f = BufWriter::new(f);
         let mut builder = TableBuilder::new(opt.clone(), f);
         while from.advance() {
             assert!(from.current(&mut kbuf, &mut vbuf));
