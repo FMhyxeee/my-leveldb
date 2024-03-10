@@ -227,8 +227,7 @@ impl VersionSet {
     }
 
     pub fn add_version(&mut self, v: Version) {
-        let sv = share(v);
-        self.current = Some(sv.clone());
+        self.current = Some(share(v));
     }
 
     pub fn new_file_number(&mut self) -> FileNum {
@@ -325,7 +324,7 @@ impl VersionSet {
         Some(c)
     }
 
-    fn compact_range(
+    pub fn compact_range(
         &mut self,
         level: usize,
         from: InternalKey,
