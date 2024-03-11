@@ -569,6 +569,45 @@ impl DB {
         }
     }
 
+    pub fn compact_range(&mut self, from: &[u8], to: &[u8]) -> Result<()> {
+        let mut max_level = 1;
+        {
+            let v = self.vset.borrow().current();
+            let v = v.borrow();
+            for l in 1..NUM_LEVELS {
+                if v.overlap_in_level(l, &from, &to) {
+                    max_level = l;
+                }
+            }
+        }
+
+        // Compact memtable.
+        self.make_room_for_write(true)?;
+
+        let mut ifrom = LookupKey::new(from, MAX_SEQUENCE_NUMBER)
+            .internal_key()
+            .to_vec();
+        let iend = LookupKey::new_full(to, 0, ValueType::TypeDeletion);
+
+        for l in 0..max_level + 1 {
+            loop {
+                let c_ = self
+                    .vset
+                    .borrow_mut()
+                    .compact_range(l, &ifrom, iend.internal_key());
+                if let Some(c) = c_ {
+                    // Update ifrom to the largest key of the last file in this compaction.
+                    let ix = c.num_inputs(0) - 1;
+                    ifrom = c.input(0, ix).largest.clone();
+                    self.start_compaction(c)?;
+                } else {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// start_compaction dispatches the different kind of compactions depending on the current state of
     /// the database.
     fn start_compaction(&mut self, mut compaction: Compaction) -> Result<()> {
@@ -1014,12 +1053,13 @@ pub mod testutil {
         version::testutil::make_version,
         version_edit::VersionEdit,
         version_set::{manifest_file_name, set_current_file},
+        Options,
     };
 
     use super::DB;
 
     /// build-db creates a database filled with the tables created by make_version().
-    pub fn build_db() -> DB {
+    pub fn build_db() -> (DB, Options) {
         let name = "db";
         let (v, opt) = make_version();
         let mut ve = VersionEdit::new();
@@ -1042,7 +1082,8 @@ pub mod testutil {
         lw.add_record(&ve.encode()).unwrap();
         lw.flush().unwrap();
         set_current_file(&opt.env, name, 10).unwrap();
-        DB::open(name, opt).unwrap()
+
+        (DB::open(name, opt.clone()).unwrap(), opt)
     }
 
     /// set file_to_compact ensures that the specified table file will be compacted next.
@@ -1244,6 +1285,44 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
+    fn test_db_impl_compact_range() {
+        let (mut db, opt) = build_db();
+        let env = &opt.env;
+
+        println!(
+            "children before: {:?}",
+            env.children(Path::new("db/")).unwrap()
+        );
+        db.compact_range(b"aaa", b"dba").unwrap();
+        println!(
+            "children before: {:?}",
+            env.children(Path::new("db/")).unwrap()
+        );
+        assert!(opt.env.exists(Path::new("db/000007.ldb")).unwrap());
+        assert!(opt.env.exists(Path::new("db/000008.ldb")).unwrap());
+        assert!(opt.env.exists(Path::new("db/000009.ldb")).unwrap());
+        assert!(opt.env.exists(Path::new("db/000015.ldb")).unwrap());
+
+        assert!(!opt.env.exists(Path::new("db/000001.ldb")).unwrap());
+        assert!(!opt.env.exists(Path::new("db/000002.ldb")).unwrap());
+        assert!(!opt.env.exists(Path::new("db/000004.ldb")).unwrap());
+        assert!(!opt.env.exists(Path::new("db/000005.ldb")).unwrap());
+        assert!(!opt.env.exists(Path::new("db/000006.ldb")).unwrap());
+        assert!(!opt.env.exists(Path::new("db/000014.ldb")).unwrap());
+
+        assert_eq!(250, opt.env.size_of(Path::new("db/000007.ldb")).unwrap());
+        assert_eq!(200, opt.env.size_of(Path::new("db/000008.ldb")).unwrap());
+        assert_eq!(200, opt.env.size_of(Path::new("db/000009.ldb")).unwrap());
+        assert_eq!(435, opt.env.size_of(Path::new("db/000015.ldb")).unwrap());
+
+        assert_eq!(b"val1".to_vec(), db.get(b"aaa").unwrap());
+        assert_eq!(b"val2".to_vec(), db.get(b"cab").unwrap());
+        assert_eq!(b"val3".to_vec(), db.get(b"aba").unwrap());
+        assert_eq!(b"val3".to_vec(), db.get(b"fab").unwrap());
+    }
+
+    #[test]
     fn test_db_impl_locking() {
         let opt = options::for_test();
         let _db = DB::open("db", opt.clone()).unwrap();
@@ -1314,8 +1393,8 @@ mod tests {
     #[test]
     #[ignore]
     fn test_db_impl_build_db_sanity() {
-        let db = build_db();
-        let env = &db.opt.env;
+        let (db, opt) = build_db();
+        let env = &opt.env;
         let name = &db.name;
 
         assert!(env.exists(Path::new(&log_file_name(name, 12))).unwrap());
@@ -1324,7 +1403,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_db_impl_get_from_table_with_snapshot() {
-        let mut db = build_db();
+        let (mut db, _opt) = build_db();
 
         assert_eq!(28, db.vset.borrow().last_seq);
         // seq = 29
@@ -1368,7 +1447,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_db_impl_delete() {
-        let mut db = build_db();
+        let (mut db, _) = build_db();
 
         db.put(b"xyy", b"123").unwrap();
         db.put(b"xyz", b"123").unwrap();
@@ -1388,7 +1467,8 @@ mod tests {
     #[test]
     #[ignore]
     fn test_db_impl_compact_single_file() {
-        let mut db = build_db();
+        let (mut db, _) = build_db();
+
         set_file_to_compact(&mut db, 4);
         db.maybe_do_compaction().unwrap();
 
@@ -1462,7 +1542,8 @@ mod tests {
     #[test]
     #[ignore]
     fn test_db_impl_compaction() {
-        let mut db = build_db();
+        let (mut db, _) = build_db();
+
         let v = db.current();
         v.borrow_mut().compaction_score = Some(2.0);
         v.borrow_mut().compaction_level = Some(1);
@@ -1528,9 +1609,9 @@ mod tests {
     #[test]
     #[ignore]
     fn test_db_impl_open_close_reopen() {
-        let opt;
+        let opt: Options;
         {
-            let mut db = build_db();
+            let mut db = build_db().0;
             opt = db.opt.clone();
 
             db.put(b"xx1", b"111").unwrap();
@@ -1542,6 +1623,7 @@ mod tests {
 
         {
             let mut db = DB::open("db", opt.clone()).unwrap();
+
             let ss = db.get_snapshot();
             db.put(b"xx4", b"222").unwrap();
             let ss2 = db.get_snapshot();

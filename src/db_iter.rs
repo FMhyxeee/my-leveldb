@@ -289,7 +289,7 @@ mod tests {
     #[test]
     #[ignore]
     fn db_iter_basic_test() {
-        let mut db = build_db();
+        let (mut db, _) = build_db();
         let mut iter = db.new_iter().unwrap();
 
         // keys and values come from make_version(); they are each the latest entry.
@@ -309,7 +309,7 @@ mod tests {
     #[test]
     #[ignore]
     fn db_iter_reset() {
-        let mut db = build_db();
+        let (mut db, _) = build_db();
         let mut iter = db.new_iter().unwrap();
 
         assert!(iter.advance());
@@ -323,7 +323,7 @@ mod tests {
     #[test]
     #[ignore]
     fn db_iter_test_forward_backword() {
-        let mut db = build_db();
+        let (mut db, _) = build_db();
         let mut iter = db.new_iter().unwrap();
 
         // keys and values come from make_version(); they are each the latest entry.
@@ -376,7 +376,7 @@ mod tests {
     #[test]
     #[ignore]
     fn db_iter_test_seek() {
-        let mut db = build_db();
+        let (mut db, _) = build_db();
         let mut iter = db.new_iter().unwrap();
 
         // gca is the deleted entry.
@@ -409,7 +409,7 @@ mod tests {
     #[test]
     #[ignore]
     fn db_iter_deleted_entry_not_returned() {
-        let mut db = build_db();
+        let (mut db, _) = build_db();
         let mut iter = db.new_iter().unwrap();
         let must_not_appear = b"gca";
 
@@ -421,7 +421,7 @@ mod tests {
     #[test]
     #[ignore]
     fn db_iter_deleted_entry_not_returned_memtable() {
-        let mut db = build_db();
+        let (mut db, _) = build_db();
 
         db.put(b"xyz", b"123").unwrap();
         db.delete(b"xyz").unwrap();
@@ -438,7 +438,7 @@ mod tests {
     #[ignore]
     fn db_iter_repeated_open_close() {
         {
-            let mut db = build_db();
+            let (mut db, _) = build_db();
 
             db.put(b"xx1", b"111").unwrap();
             db.put(b"xx2", b"112").unwrap();
