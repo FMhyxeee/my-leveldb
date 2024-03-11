@@ -1,3 +1,6 @@
+//! db_impl contains the implementation of the database interface and high-level compaction and
+//! maintenance logic.
+
 use std::{
     cmp::Ordering,
     io::{self, BufWriter, Write},
@@ -35,7 +38,6 @@ use crate::{
 
 /// DB contains the actual database implementation. As opposed to the original, this implementation
 /// is not concurrent (yet)
-
 pub struct DB {
     name: String,
     lock: Option<FileLock>,
@@ -142,7 +144,7 @@ impl DB {
     /// recover recovers from the existing state on disk. If the wrapped result is `true`, then
     /// log_and_apply() should be called after recovery has finished.
     fn recover(&mut self, ve: &mut VersionEdit) -> Result<bool> {
-        let _ = self.opt.env.mkdir(Path::new(&self.name)).is_ok();
+        self.opt.env.mkdir(Path::new(&self.name)).unwrap();
         self.acquire_lock()?;
 
         if let Err(e) = read_current_file(&self.opt.env, &self.name) {
@@ -332,25 +334,25 @@ impl DB {
     /// acquire_lock acquires that lock file.
     fn acquire_lock(&mut self) -> Result<()> {
         let lock_r = self.opt.env.lock(Path::new(&lock_file_name(&self.name)));
-        if let Ok(lockfile) = lock_r {
-            self.lock = Some(lockfile);
-            return Ok(());
-        }
-
-        let e = lock_r.unwrap_err();
-        if e.code == StatusCode::LockError {
-            return err(
+        match lock_r {
+            Ok(lockfile) => {
+                self.lock = Some(lockfile);
+                Ok(())
+            }
+            Err(ref e) if e.code == StatusCode::LockError => err(
                 StatusCode::LockError,
                 "database lock is held by another instance",
-            );
+            ),
+            Err(e) => Err(e),
         }
-        Err(e)
     }
 
     /// release_lock release the lock file, if it's currently held.
-    fn release_lock(&mut self) {
-        if let Some(lock) = self.lock.take() {
-            let _ = self.opt.env.unlock(lock);
+    fn release_lock(&mut self) -> Result<()> {
+        if let Some(l) = self.lock.take() {
+            self.opt.env.unlock(l)
+        } else {
+            Ok(())
         }
     }
 }
@@ -529,7 +531,8 @@ impl DB {
     /// if it's the case
     #[allow(clippy::unnecessary_unwrap)]
     fn make_room_for_write(&mut self, force: bool) -> Result<()> {
-        if !force && self.mem.approx_mem_usage() < self.opt.write_buffer_size {
+        if !force && self.mem.approx_mem_usage() < self.opt.write_buffer_size || self.mem.len() == 0
+        {
             Ok(())
         } else {
             // Create new memtable.
@@ -912,7 +915,7 @@ impl DB {
 
 impl Drop for DB {
     fn drop(&mut self) {
-        self.release_lock();
+        self.release_lock().unwrap();
     }
 }
 
@@ -1296,30 +1299,65 @@ mod tests {
         );
         db.compact_range(b"aaa", b"dba").unwrap();
         println!(
-            "children before: {:?}",
+            "children after: {:?}",
             env.children(Path::new("db/")).unwrap()
         );
-        assert!(opt.env.exists(Path::new("db/000007.ldb")).unwrap());
-        assert!(opt.env.exists(Path::new("db/000008.ldb")).unwrap());
-        assert!(opt.env.exists(Path::new("db/000009.ldb")).unwrap());
-        assert!(opt.env.exists(Path::new("db/000015.ldb")).unwrap());
+
+        assert_eq!(250, opt.env.size_of(Path::new("db/000007.ldb")).unwrap());
+        assert_eq!(200, opt.env.size_of(Path::new("db/000008.ldb")).unwrap());
+        assert_eq!(200, opt.env.size_of(Path::new("db/000009.ldb")).unwrap());
+        assert_eq!(435, opt.env.size_of(Path::new("db/000014.ldb")).unwrap());
 
         assert!(!opt.env.exists(Path::new("db/000001.ldb")).unwrap());
         assert!(!opt.env.exists(Path::new("db/000002.ldb")).unwrap());
         assert!(!opt.env.exists(Path::new("db/000004.ldb")).unwrap());
         assert!(!opt.env.exists(Path::new("db/000005.ldb")).unwrap());
         assert!(!opt.env.exists(Path::new("db/000006.ldb")).unwrap());
-        assert!(!opt.env.exists(Path::new("db/000014.ldb")).unwrap());
-
-        assert_eq!(250, opt.env.size_of(Path::new("db/000007.ldb")).unwrap());
-        assert_eq!(200, opt.env.size_of(Path::new("db/000008.ldb")).unwrap());
-        assert_eq!(200, opt.env.size_of(Path::new("db/000009.ldb")).unwrap());
-        assert_eq!(435, opt.env.size_of(Path::new("db/000015.ldb")).unwrap());
+        assert!(!opt.env.exists(Path::new("db/000013.ldb")).unwrap());
 
         assert_eq!(b"val1".to_vec(), db.get(b"aaa").unwrap());
         assert_eq!(b"val2".to_vec(), db.get(b"cab").unwrap());
         assert_eq!(b"val3".to_vec(), db.get(b"aba").unwrap());
         assert_eq!(b"val3".to_vec(), db.get(b"fab").unwrap());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_db_impl_compact_range_memtable() {
+        let (mut db, opt) = build_db();
+        let env = &opt.env;
+
+        db.put(b"xxx", b"123").unwrap();
+
+        println!(
+            "children before: {:?}",
+            env.children(Path::new("db/")).unwrap()
+        );
+        db.compact_range(b"aaa", b"dba").unwrap();
+        println!(
+            "children after: {:?}",
+            env.children(Path::new("db/")).unwrap()
+        );
+
+        assert_eq!(250, opt.env.size_of(Path::new("db/000007.ldb")).unwrap());
+        assert_eq!(200, opt.env.size_of(Path::new("db/000008.ldb")).unwrap());
+        assert_eq!(200, opt.env.size_of(Path::new("db/000009.ldb")).unwrap());
+        assert_eq!(182, opt.env.size_of(Path::new("db/000014.ldb")).unwrap());
+        assert_eq!(435, opt.env.size_of(Path::new("db/000016.ldb")).unwrap());
+
+        assert!(!opt.env.exists(Path::new("db/000001.ldb")).unwrap());
+        assert!(!opt.env.exists(Path::new("db/000002.ldb")).unwrap());
+        assert!(!opt.env.exists(Path::new("db/000003.ldb")).unwrap());
+        assert!(!opt.env.exists(Path::new("db/000004.ldb")).unwrap());
+        assert!(!opt.env.exists(Path::new("db/000005.ldb")).unwrap());
+        assert!(!opt.env.exists(Path::new("db/000006.ldb")).unwrap());
+        assert!(!opt.env.exists(Path::new("db/000015.ldb")).unwrap());
+
+        assert_eq!(b"val1".to_vec(), db.get(b"aaa").unwrap());
+        assert_eq!(b"val2".to_vec(), db.get(b"cab").unwrap());
+        assert_eq!(b"val3".to_vec(), db.get(b"aba").unwrap());
+        assert_eq!(b"val3".to_vec(), db.get(b"fab").unwrap());
+        assert_eq!(b"123".to_vec(), db.get(b"xxx").unwrap());
     }
 
     #[test]
