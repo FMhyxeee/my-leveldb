@@ -1410,6 +1410,7 @@ mod tests {
         db.put("xyy".as_bytes(), "123".as_bytes()).unwrap();
         let old_ss = db.get_snapshot();
         db.put("xyz".as_bytes(), "123".as_bytes()).unwrap();
+        db.flush().unwrap();
         assert!(db.get_at(&old_ss, "xyy".as_bytes()).unwrap().is_some());
         assert!(db.get_at(&old_ss, "xyz".as_bytes()).unwrap().is_none());
 
