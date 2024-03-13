@@ -136,7 +136,10 @@ impl Compaction {
     }
 
     pub fn should_stop_before(&mut self, k: InternalKey) -> bool {
-        assert!(self.grandparents.is_some());
+        if self.grandparents.is_none() {
+            self.seen_key = true;
+            return false;
+        }
         let grandparents = self.grandparents.as_ref().unwrap();
 
         while self.grandparent_ix < grandparents.len()
