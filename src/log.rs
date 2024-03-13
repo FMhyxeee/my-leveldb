@@ -95,7 +95,7 @@ impl<W: Write> LogWriter<W> {
         self.digest.write(&[t as u8]);
         self.digest.write(&data[0..len]);
 
-        let chksum = make_crc(self.digest.sum32());
+        let chksum = mask_crc(self.digest.sum32());
 
         let mut s = 0;
         s += self.dst.write(&chksum.encode_fixed_vec()).unwrap();
@@ -203,11 +203,11 @@ impl<R: Read> LogReader<R> {
 
 const MASK_DELTA: u32 = 0xa282ead8;
 
-fn make_crc(c: u32) -> u32 {
+pub fn mask_crc(c: u32) -> u32 {
     (c.wrapping_shr(15) | c.wrapping_shl(17)).wrapping_add(MASK_DELTA)
 }
 
-fn unmask_crc(c: u32) -> u32 {
+pub fn unmask_crc(c: u32) -> u32 {
     let rot = c.wrapping_sub(MASK_DELTA);
     rot.wrapping_shr(17) | rot.wrapping_shl(15)
 }
@@ -218,15 +218,21 @@ mod tests {
 
     use crc::crc32;
 
-    use crate::log::{make_crc, unmask_crc, LogReader, HEADER_SIZE};
+    use crate::log::{mask_crc, unmask_crc, LogReader, HEADER_SIZE};
 
     use super::LogWriter;
 
     #[test]
     fn test_crc_mask_crc() {
         let crc = crc32::checksum_castagnoli("abcde".as_bytes());
-        assert_eq!(crc, unmask_crc(make_crc(crc)));
-        assert!(crc != make_crc(crc));
+        assert_eq!(crc, unmask_crc(mask_crc(crc)));
+        assert!(crc != mask_crc(crc));
+    }
+
+    #[test]
+    fn test_crc_sanity() {
+        assert_eq!(0x8a9136aa, crc32::checksum_castagnoli(&[0u8; 32]));
+        assert_eq!(0x62a8ab43, crc32::checksum_castagnoli(&[0xffu8; 32]));
     }
 
     #[test]

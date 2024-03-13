@@ -12,6 +12,7 @@ use crate::{
     filter::InternalFilterPolicy,
     filter_block::FilterBlockReader,
     key_types::InternalKey,
+    log::unmask_crc,
     options::{self, CompressionType, Options},
     table_builder::{self, Footer},
     types::{current_key_val, LdbIterator},
@@ -68,7 +69,7 @@ impl TableBlock {
 
         Ok(TableBlock {
             block: Block::new(opt, buf),
-            checksum: u32::decode_fixed(&cksum),
+            checksum: unmask_crc(u32::decode_fixed(&cksum)),
             compression: options::int_to_compressiontype(compress[0] as u32)
                 .unwrap_or(CompressionType::CompressionNone),
         })

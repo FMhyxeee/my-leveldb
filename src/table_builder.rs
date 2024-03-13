@@ -11,6 +11,7 @@ use crate::{
     filter::{InternalFilterPolicy, NoFilterPolicy},
     filter_block::FilterBlockBuilder,
     key_types::InternalKey,
+    log::mask_crc,
     options::{CompressionType, Options},
 };
 
@@ -203,7 +204,7 @@ impl<Dst: Write> TableBuilder<Dst> {
 
         digest.write(&block);
         digest.write(&[self.opt.compression_type as u8; 1]);
-        digest.sum32().encode_fixed(&mut buf);
+        mask_crc(digest.sum32()).encode_fixed(&mut buf);
 
         self.dst.write_all(&block)?;
         self.dst.write_all(&[t as u8; TABLE_BLOCK_COMPRESS_LEN])?;
