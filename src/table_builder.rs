@@ -1,5 +1,5 @@
 use crc::{crc32, Hasher32};
-use integer_encoding::FixedInt;
+use integer_encoding::FixedIntWriter;
 use std::{cmp::Ordering, io::Write, rc::Rc};
 
 use crate::{
@@ -73,7 +73,7 @@ impl Footer {
 /// DATABLOCKS, METABLOCKS, INDEX BLOCK and METAINDEX BLOCK are built using the code in
 /// the `block` module.
 ///
-/// The FOOTER consists of a BlockHandle what points to the metaindex block, another pointing to
+/// The FOOTER consists of a BlockHandle that points to the metaindex block, another pointing to
 /// the index block, padding to fill up to 40 B and at the end the 8B magic number.
 /// 0xdb4775248b80fb57.
 pub struct TableBuilder<Dst: Write> {
@@ -199,19 +199,16 @@ impl<Dst: Write> TableBuilder<Dst> {
         // compression is still unimplemented
         assert_eq!(t, CompressionType::CompressionNone);
 
-        let mut buf = [0u8; 4];
         let mut digest = crc32::Digest::new(crc32::CASTAGNOLI);
 
         digest.write(&block);
-        digest.write(&[self.opt.compression_type as u8; 1]);
-        mask_crc(digest.sum32()).encode_fixed(&mut buf);
+        digest.write(&[self.opt.compression_type as u8; TABLE_BLOCK_COMPRESS_LEN]);
 
         self.dst.write_all(&block)?;
         self.dst.write_all(&[t as u8; TABLE_BLOCK_COMPRESS_LEN])?;
-        self.dst.write_all(&buf)?;
+        self.dst.write_fixedint(mask_crc(digest.sum32()))?;
 
         let handle = BlockHandle::new(self.offset, block.len());
-
         self.offset += block.len() + TABLE_BLOCK_COMPRESS_LEN + TBALE_BLOCK_CKSUM_LEN;
 
         Ok(handle)
