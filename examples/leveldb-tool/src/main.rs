@@ -34,6 +34,10 @@ fn iter(db: &mut DB) {
     }
 }
 
+fn compact(db: &mut DB, from: &str, to: &str) {
+    db.compact_range(from.as_bytes(), to.as_bytes()).unwrap();
+}
+
 fn main() {
     let args = Vec::from_iter(args());
 
@@ -68,6 +72,12 @@ fn main() {
             delete(&mut db, &args[2]);
         }
         "iter" => iter(&mut db),
+        "compact" => {
+            if args.len() < 4 {
+                panic!("Usage: {} compact from to", args[0]);
+            }
+            compact(&mut db, &args[2], &args[3]);
+        }
         _ => unimplemented!(),
     }
 }
