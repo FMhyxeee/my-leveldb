@@ -176,6 +176,7 @@ pub struct VersionSet {
     pub manifest_num: u64,
     pub last_seq: u64,
     pub log_num: u64,
+    pub prev_log_num: u64,
 
     current: Option<Shared<Version>>,
     compaction_ptrs: [Vec<u8>; NUM_LEVELS],
@@ -198,6 +199,7 @@ impl VersionSet {
             manifest_num: 0,
             last_seq: 0,
             log_num: 0,
+            prev_log_num: 0,
 
             current: Some(v),
             compaction_ptrs: Default::default(),
@@ -486,6 +488,9 @@ impl VersionSet {
             assert!(edit.log_number.unwrap() >= self.log_num);
             assert!(edit.log_number.unwrap() < self.next_file_num);
         }
+        if edit.prev_log_number.is_none() {
+            edit.set_prev_log_num(self.prev_log_num);
+        }
         edit.set_next_file(self.next_file_num);
         edit.set_last_seq(self.last_seq);
 
@@ -574,6 +579,7 @@ impl VersionSet {
             );
 
             let mut log_number = None;
+            let mut prev_log_number = None;
             let mut next_file_number = None;
             let mut last_seq = None;
 
@@ -592,6 +598,9 @@ impl VersionSet {
                 }
                 if let Some(ls) = edit.last_seq {
                     last_seq = Some(ls);
+                }
+                if let Some(pln) = edit.prev_log_number {
+                    prev_log_number = Some(pln);
                 }
             }
 
@@ -620,6 +629,12 @@ impl VersionSet {
                     "no last-sequence entry in descriptor",
                 );
             }
+            if let Some(pln) = prev_log_number {
+                self.prev_log_num = pln;
+                self.mark_file_number_used(prev_log_number.unwrap());
+            } else {
+                self.prev_log_num = 0;
+            }
         }
 
         let mut v = Version::new(self.cache.clone(), self.opt.cmp.clone());
@@ -630,10 +645,12 @@ impl VersionSet {
 
         log!(
             self.opt.log,
-            "Recovered manifest with next_file={} manifest_num={} log_num={} last_seq={}",
+            "Recovered manifest with next_file={} manifest_num={} log_num={} prev_log_num={} \
+              last_seq={}",
             self.next_file_num,
             self.manifest_num,
             self.log_num,
+            self.prev_log_num,
             self.last_seq
         );
 
