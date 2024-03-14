@@ -276,7 +276,8 @@ impl DB {
             self.log_num = Some(log_num);
             self.mem = mem;
         } else if mem.len() > 0 {
-            // Log is not reused, so write out the accumulated memtable.
+            // Log is not reused, so write out the accumulated memtable
+            save_manifest = true;
             self.write_l0_table(&mem, ve, None)?;
         }
 
