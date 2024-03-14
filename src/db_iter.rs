@@ -56,10 +56,11 @@ impl DBIterator {
 
     /// record_read_sample records a read sample using the current contents of self.keybuf, which
     /// should be an InternalKey.
-    fn record_read_sample(&mut self) {
+    fn record_read_sample(&mut self, len: usize) {
+        self.byte_count -= len as isize;
         if self.byte_count < 0 {
-            let vset = self.vset.borrow().current();
-            vset.borrow_mut().record_read_sample(&self.keybuf);
+            let v = self.vset.borrow().current();
+            v.borrow_mut().record_read_sample(&self.keybuf);
             self.byte_count += random_period();
         }
     }
@@ -71,7 +72,8 @@ impl DBIterator {
 
         while self.iter.valid() {
             self.iter.current(&mut self.keybuf, &mut self.savedval);
-            self.record_read_sample();
+            let len = self.keybuf.len() + self.savedval.len();
+            self.record_read_sample(len);
             let (typ, seq, ukey) = parse_internal_key(&self.keybuf);
 
             // Skip keys with a sequence number after our snapshot.
@@ -117,7 +119,8 @@ impl DBIterator {
         // in the previous iteration to savedkey and savedval.
         while self.iter.valid() {
             self.iter.current(&mut self.keybuf, &mut self.valbuf);
-            self.record_read_sample();
+            let len = self.keybuf.len() + self.valbuf.len();
+            self.record_read_sample(len);
             let (typ, seq, ukey) = parse_internal_key(&self.keybuf);
 
             if seq > 0 && seq <= self.ss.sequence() {
