@@ -16,13 +16,14 @@ pub trait Cmp {
     /// the second one.
     fn find_shortest_sep(&self, a: &[u8], b: &[u8]) -> Vec<u8>;
     /// Return the shortest byte string that comares "Greater" to the argument.
-    fn find_short_succ(&self, a: &[u8]) -> Vec<u8>;
+    fn find_short_succ(&self, key: &[u8]) -> Vec<u8>;
+
     /// A unique identifier for a comparator. A comparator warpper (like InternalKeyCmp) nay
     /// return the id of its inner comparator.
     fn id(&self) -> &'static str;
 }
 
-/// Lexical comparator.
+/// The default byte-wise comparator.
 #[derive(Clone)]
 pub struct DefaultCmp;
 

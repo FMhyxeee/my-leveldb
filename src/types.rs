@@ -35,23 +35,24 @@ pub struct Range<'a> {
 ///
 /// test_util::test_iterator_properties() verifies that all properties hold.
 pub trait LdbIterator {
-    /// advance advances the position of the iterator by one element (which can be retrieved using
+    /// Advance advances the position of the iterator by one element (which can be retrieved using
     /// current(). If no more elements are available, advance() return false, and the iterator
-    /// becomes invalid. (i.e like reset() has been called).
+    /// becomes invalid. (i.e like as if reset() had been called).
     fn advance(&mut self) -> bool;
-    /// Return the currentite4m(i.e the item most recently returned by get_next())
+    /// Return the currentite4m(i.e the item most recently returned by `next()`)
     fn current(&self, key: &mut Vec<u8>, val: &mut Vec<u8>) -> bool;
     /// Seek the iterator to `key` or the next bigger key. If the seek is invalid (past last
-    /// element), the iterator is reset() and not valid.
+    /// element, or before first element the iterator is reset() and not valid.
     /// After a seek to an existing key, current() returns that entry.
     fn seek(&mut self, key: &[u8]);
-    /// Resets the iterator to the beginning.
+    /// Resets the iterator to be `!valid()`, i.e. positioned before the first element.
     fn reset(&mut self);
     /// Returns true if the iterator is not positioned before the first or after the last element,
-    /// i.e if current() would return an entry.
+    /// i.e. if `current()` would succeed.
     fn valid(&self) -> bool;
-    /// Go to the previous item; if the iterator has reached the "before-first" item, prev()
-    /// returns false, and the iterator is invalid. This is inefficient for most iterators.
+    /// Go to the previous item; if the iterator is moved beyond the first element, `prev()`
+    /// returns false and it will be `!valid()`. This is inefficient for most iterator
+    /// implementations.
     fn prev(&mut self) -> bool;
 
     // default implementations.

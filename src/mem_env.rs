@@ -268,12 +268,19 @@ impl MemFS {
     }
 }
 
-/// MemEnv is an in-memory environment that can be used for both testing and ephemeral databases.
+/// MemEnv is an in-memory environment that can be used for testing and ephemeral databases. The
+/// performance will be better than what a disk environment delivers.
 pub struct MemEnv(MemFS);
 
 impl MemEnv {
     pub fn new() -> MemEnv {
         MemEnv(MemFS::new())
+    }
+}
+
+impl Default for MemEnv {
+    fn default() -> MemEnv {
+        MemEnv::new()
     }
 }
 
