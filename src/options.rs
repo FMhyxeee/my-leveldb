@@ -82,6 +82,15 @@ impl Default for Options {
     }
 }
 
+/// Returns Options that will cause a database to exist purely in-memory instead of being stored on
+/// disk. This is useful for testing or ephemeral databases.
+pub fn in_memory() -> Options {
+    Options {
+        env: Rc::new(Box::new(MemEnv::new())),
+        ..Default::default()
+    }
+}
+
 pub fn for_test() -> Options {
     Options {
         env: Rc::new(Box::new(MemEnv::new())),

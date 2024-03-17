@@ -2,7 +2,7 @@
 //! and is very close to the original, implementation-wise. The external API is relatively small
 //! and should be easy to use.
 //!
-//! ```
+//!
 //! use my_leveldb::{DB, DBIterator, LdbIterator, Options};
 //!
 //! let opt = my_leveldb::in_memory();
@@ -18,7 +18,7 @@
 //!
 //! db.delete(b"Hello").unwrap();
 //! db.flush().unwrap();
-//! ```
+//!
 //!
 
 #![allow(dead_code)]
@@ -64,5 +64,6 @@ pub use env::Env;
 pub use filter::{BloomPolicy, FilterPolicy};
 pub use infolog::Logger;
 pub use mem_env::MemEnv;
-pub use options::Options;
+pub use options::{in_memory, Options};
 pub use types::LdbIterator;
+pub use write_batch::WriteBatch;
