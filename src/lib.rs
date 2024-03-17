@@ -1,3 +1,26 @@
+//! my-leveldb is a reimplementation of LevelDB in pure rust. It depends only on a few crates,
+//! and is very close to the original, implementation-wise. The external API is relatively small
+//! and should be easy to use.
+//!
+//! ```
+//! use my_leveldb::{DB, DBIterator, LdbIterator, Options};
+//!
+//! let opt = my_leveldb::in_memory();
+//! let mut db = DB::open("mydatabase", opt).unwrap();
+//!
+//! db.put(b"Hello", b"World").unwrap();
+//! assert_eq!(b"World", db.get(b"Hello").unwrap().as_slice());
+//!
+//! let mut iter = db.new_iter().unwrap();
+//! // Note: For efficiency reasons, it's recommended to use advance() and current() instead of
+//! // next().
+//! assert_eq!((b"Hello".to_vec(), b"World".to_vec()), iter.next().unwrap());
+//!
+//! db.delete(b"Hello").unwrap();
+//! db.flush().unwrap();
+//! ```
+//!
+
 #![allow(dead_code)]
 
 mod block;
