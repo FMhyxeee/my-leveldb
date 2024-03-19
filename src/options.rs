@@ -99,20 +99,3 @@ pub fn for_test() -> Options {
         ..Default::default()
     }
 }
-
-impl Options {
-    /// Set the comparator to use in all operations and structures that need to compare keys.
-    ///
-    /// DO NOT set the comparator after having written any record with a different comparator.
-    /// If the comparator used differs from the one used when writing a database that is being
-    /// opened, the library is free to panic.
-    pub fn set_comparator(&mut self, c: Box<dyn Cmp>) {
-        self.cmp = Rc::new(c);
-    }
-
-    /// Supplied to DB read operations
-    /// Deprecated: Will soon be removed to reduce complexity.
-    pub fn set_env(&mut self, e: Box<dyn Env>) {
-        self.env = Rc::new(e);
-    }
-}

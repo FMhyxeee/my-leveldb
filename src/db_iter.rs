@@ -11,6 +11,7 @@ use crate::{
 
 const READ_BYTES_PERIOD: isize = 1048576;
 
+/// DBIterator is an iterator over the contents of a database.
 pub struct DBIterator {
     // A user comparator.
     cmp: Rc<Box<dyn Cmp>>,

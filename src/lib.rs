@@ -13,7 +13,7 @@
 //!
 //! let mut iter = db.new_iter().unwrap();
 //! // Note: For efficiency reasons, it's recommended to use advance() and current() instead of
-//! // next().
+//! // next() when iterating over many elements.
 //! assert_eq!((b"Hello".to_vec(), b"World".to_vec()), iter.next().unwrap());
 //!
 //! db.delete(b"Hello").unwrap();
@@ -61,8 +61,8 @@ pub use cmp::{Cmp, DefaultCmp};
 pub use db_impl::DB;
 pub use db_iter::DBIterator;
 pub use env::Env;
+pub use error::{Result, Status};
 pub use filter::{BloomPolicy, FilterPolicy};
-pub use infolog::Logger;
 pub use mem_env::MemEnv;
 pub use options::{in_memory, Options};
 pub use types::LdbIterator;

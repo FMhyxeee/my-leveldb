@@ -758,8 +758,7 @@ mod tests {
     fn test_version_all_iters() {
         let v = make_version().0;
         let iters = v.new_iters().unwrap();
-        let mut opt = options::for_test();
-        opt.set_comparator(Box::new(InternalKeyCmp(Rc::new(Box::new(DefaultCmp)))));
+        let opt = options::for_test();
 
         let mut miter = MergingIter::new(opt.cmp.clone(), iters);
         assert_eq!(LdbIteratorIter::wrap(&mut miter).count(), 27);
