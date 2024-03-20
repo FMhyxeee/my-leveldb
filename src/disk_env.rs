@@ -26,6 +26,12 @@ impl PosixDiskEnv {
     }
 }
 
+impl Default for PosixDiskEnv {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// map_err_with_name annotates an io::Error with information about the operation and the file.
 fn map_err_with_name(method: &'static str, f: &Path, e: io::Error) -> Status {
     let mut s = Status::from(e);

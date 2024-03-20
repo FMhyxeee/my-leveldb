@@ -60,6 +60,7 @@ mod db_iter;
 pub use cmp::{Cmp, DefaultCmp};
 pub use db_impl::DB;
 pub use db_iter::DBIterator;
+pub use disk_env::PosixDiskEnv;
 pub use env::Env;
 pub use error::{Result, Status};
 pub use filter::{BloomPolicy, FilterPolicy};
