@@ -1,5 +1,6 @@
 use crc::{crc32, Hasher32};
 use integer_encoding::{FixedInt, FixedIntWriter};
+use snap::raw::Decoder;
 use std::{cmp::Ordering, rc::Rc};
 
 use crate::{
@@ -34,8 +35,6 @@ fn read_bytes(f: &dyn RandomAccess, location: &BlockHandle) -> Result<Vec<u8>> {
 #[derive(Clone)]
 struct TableBlock {
     block: Block,
-    checksum: u32,
-    compression: CompressionType,
 }
 
 impl TableBlock {
@@ -47,6 +46,7 @@ impl TableBlock {
     ) -> Result<TableBlock> {
         // The block is denoted by offset and length in BlockHandle. A block in an encoded
         // table is followed by 1B compression type and 4B checksum.
+        // The checksum refers to the compressed contents.
         let buf = read_bytes(f, location)?;
         let compress = read_bytes(
             f,
@@ -67,20 +67,40 @@ impl TableBlock {
         )
         .unwrap();
 
+        let mut decomp_buf = vec![];
+        if let Some(ctype) = options::int_to_compressiontype(compress[0] as u32) {
+            if !TableBlock::verify(&buf, ctype as u8, unmask_crc(u32::decode_fixed(&cksum))) {
+                return err(
+                    StatusCode::Corruption,
+                    &format!(
+                        "checksum verification failed for block at {}",
+                        location.offset()
+                    ),
+                );
+            }
+
+            if ctype == CompressionType::CompressionNone {
+                decomp_buf = buf;
+            } else if ctype == CompressionType::CompressionSnappy {
+                let mut decoder = Decoder::new();
+                decomp_buf = decoder.decompress_vec(&buf)?;
+            }
+        } else {
+            return err(StatusCode::InvalidData, "invalid compression type");
+        }
+
+        assert!(!decomp_buf.is_empty());
         Ok(TableBlock {
-            block: Block::new(opt, buf),
-            checksum: unmask_crc(u32::decode_fixed(&cksum)),
-            compression: options::int_to_compressiontype(compress[0] as u32)
-                .unwrap_or(CompressionType::CompressionNone),
+            block: Block::new(opt, decomp_buf),
         })
     }
 
-    fn verify(&self) -> bool {
+    /// Verify checksum of block.
+    fn verify(data: &[u8], compression: u8, want: u32) -> bool {
         let mut digest = crc32::Digest::new(crc32::CASTAGNOLI);
-        digest.write(&self.block.contents());
-        digest.write(&[self.compression as u8; 1]);
-
-        digest.sum32() == self.checksum
+        digest.write(data);
+        digest.write(&[compression; 1]);
+        digest.sum32() == want
     }
 }
 
@@ -106,13 +126,6 @@ impl Table {
             TableBlock::read_block(opt.clone(), file.as_ref().as_ref(), &footer.index)?;
         let metaindexblock =
             TableBlock::read_block(opt.clone(), file.as_ref().as_ref(), &footer.meta_index)?;
-
-        if !indexblock.verify() || !metaindexblock.verify() {
-            return err(
-                StatusCode::InvalidData,
-                "Indexblock/Metaindexblock failed verification",
-            );
-        }
 
         // Open filter block for reading
         let mut filter_block_reader = None;
@@ -183,9 +196,6 @@ impl Table {
         // Two times as_ref(): First time to get a ref from Rc<>, then on from Box<>.
         let b = TableBlock::read_block(self.opt.clone(), self.file.as_ref().as_ref(), location)?;
 
-        if !b.verify() {
-            return err(StatusCode::InvalidData, "Data block failed verification");
-        }
         // insert a cheap copy (Rc).
         // self.opt.block_cache.borrow_mut().insert(&cachekey, b.clone());
 

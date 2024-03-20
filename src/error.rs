@@ -99,3 +99,9 @@ impl<T> From<sync::PoisonError<T>> for Status {
         Status::new(StatusCode::LockError, "lock poisoned")
     }
 }
+
+impl From<snap::Error> for Status {
+    fn from(e: snap::Error) -> Status {
+        Status::new(StatusCode::CompressionError, &e.to_string())
+    }
+}
