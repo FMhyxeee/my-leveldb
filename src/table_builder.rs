@@ -1,5 +1,6 @@
 use crc::{crc32, Hasher32};
 use integer_encoding::FixedIntWriter;
+use snap::raw::Encoder;
 use std::{cmp::Ordering, io::Write, rc::Rc};
 
 use crate::{
@@ -8,6 +9,7 @@ use crate::{
     blockhandle::BlockHandle,
     cmp::InternalKeyCmp,
     error,
+    error::Result,
     filter::{InternalFilterPolicy, NoFilterPolicy},
     filter_block::FilterBlockBuilder,
     key_types::InternalKey,
@@ -21,7 +23,7 @@ pub const MAGIC_FOOTER_NUMBER: u64 = 0xdb4775248b80fb57;
 pub const MAGIC_FOOTER_ENCODED: [u8; 8] = [0x57, 0xfb, 0x80, 0x8b, 0x24, 0x75, 0x47, 0xdb];
 
 pub const TABLE_BLOCK_COMPRESS_LEN: usize = 1;
-pub const TBALE_BLOCK_CKSUM_LEN: usize = 4;
+pub const TABLE_BLOCK_CKSUM_LEN: usize = 4;
 
 /// Footer is a helper for encoding/decoding a table footer.
 #[derive(Debug, Clone)]
@@ -191,25 +193,25 @@ impl<Dst: Write> TableBuilder<Dst> {
         Ok(())
     }
 
-    fn write_block(
-        &mut self,
-        block: BlockContents,
-        t: CompressionType,
-    ) -> error::Result<BlockHandle> {
-        // compression is still unimplemented
-        assert_eq!(t, CompressionType::CompressionNone);
+    fn write_block(&mut self, block: BlockContents, ctype: CompressionType) -> Result<BlockHandle> {
+        let mut data = block;
+        if ctype == CompressionType::CompressionSnappy {
+            let mut encoder = Encoder::new();
+            data = encoder.compress_vec(&data)?;
+        }
 
         let mut digest = crc32::Digest::new(crc32::CASTAGNOLI);
 
-        digest.write(&block);
-        digest.write(&[self.opt.compression_type as u8; TABLE_BLOCK_COMPRESS_LEN]);
+        digest.write(&data);
+        digest.write(&[ctype as u8; TABLE_BLOCK_COMPRESS_LEN]);
 
-        self.dst.write_all(&block)?;
-        self.dst.write_all(&[t as u8; TABLE_BLOCK_COMPRESS_LEN])?;
+        self.dst.write_all(&data)?;
+        self.dst
+            .write_all(&[ctype as u8; TABLE_BLOCK_COMPRESS_LEN])?;
         self.dst.write_fixedint(mask_crc(digest.sum32()))?;
 
-        let handle = BlockHandle::new(self.offset, block.len());
-        self.offset += block.len() + TABLE_BLOCK_COMPRESS_LEN + TBALE_BLOCK_CKSUM_LEN;
+        let handle = BlockHandle::new(self.offset, data.len());
+        self.offset += data.len() + TABLE_BLOCK_COMPRESS_LEN + TABLE_BLOCK_CKSUM_LEN;
 
         Ok(handle)
     }
@@ -269,7 +271,7 @@ mod tests {
 
     use crate::{
         blockhandle::BlockHandle,
-        options,
+        options::{self, CompressionType},
         table_builder::{Footer, TableBuilder},
     };
 
@@ -292,7 +294,7 @@ mod tests {
 
         let mut opt = options::for_test();
         opt.block_restart_interval = 3;
-
+        opt.compression_type = CompressionType::CompressionSnappy;
         let mut b = TableBuilder::new_raw(opt, &mut d);
 
         let data = [
@@ -315,11 +317,10 @@ mod tests {
 
         let estimate = b.size_estimate();
         assert_eq!(143, estimate);
-
         assert!(b.filter_block.is_some());
 
         let actual = b.finish().unwrap();
-        assert_eq!(233, actual);
+        assert_eq!(223, actual);
     }
 
     #[test]
