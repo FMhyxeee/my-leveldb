@@ -1,4 +1,4 @@
-use my_leveldb::{Options, DB};
+use my_leveldb::{CompressionType, Options, DB};
 
 use rand::*;
 use std::error::Error;
@@ -24,7 +24,8 @@ fn fill_db(db: &mut DB, entries: usize) -> Result<(), Box<dyn Error>> {
 }
 
 fn main() {
-    let opt = Options::default();
+    let mut opt = Options::default();
+    opt.compression_type = CompressionType::CompressionNone;
     let mut db = DB::open("test1", opt).unwrap();
 
     fill_db(&mut db, 32768).unwrap();
