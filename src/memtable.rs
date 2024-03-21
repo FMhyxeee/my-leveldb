@@ -126,7 +126,6 @@ impl LdbIterator for MemtableIterator {
 
         if self.skipmapiter.current(key, val) {
             let (keylen, keyoff, _, vallen, valoff) = parse_memtable_key(key);
-
             val.clear();
             val.extend_from_slice(&key[valoff..valoff + vallen]);
             // zero-allocation truncation.

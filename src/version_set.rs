@@ -21,6 +21,7 @@ use crate::types::LdbIterator;
 use crate::types::Shared;
 use crate::types::NUM_LEVELS;
 use crate::version::new_version_iter;
+use crate::version::total_size;
 use crate::version::FileMetaHandle;
 use crate::version::Version;
 use crate::version_edit::VersionEdit;
@@ -37,6 +38,8 @@ pub struct Compaction {
     level_ixs: [usize; NUM_LEVELS],
     cmp: Rc<Box<dyn Cmp>>,
     icmp: InternalKeyCmp,
+
+    manual: bool,
 
     // "parent" inputs from level and level+1.
     inputs: [Vec<FileMetaHandle>; 2],
@@ -58,6 +61,7 @@ impl Compaction {
             level_ixs: Default::default(),
             cmp: opt.cmp.clone(),
             icmp: InternalKeyCmp(opt.cmp.clone()),
+            manual: false,
 
             inputs: Default::default(),
             grandparent_ix: 0,
@@ -131,7 +135,15 @@ impl Compaction {
     }
 
     pub fn is_trivial_move(&self) -> bool {
-        let inputs_size = total_size(self.grandparents.as_ref().unwrap().iter());
+        if self.manual {
+            return false;
+        }
+        let inputs_size;
+        if let Some(gp) = self.grandparents.as_ref() {
+            inputs_size = total_size(gp.iter());
+        } else {
+            inputs_size = 0;
+        }
         self.num_inputs(0) == 1 && self.num_inputs(1) == 0 && inputs_size < 10 * self.max_file_size
     }
 
@@ -359,6 +371,7 @@ impl VersionSet {
 
         let mut c = Compaction::new(&self.opt, level, self.current.clone());
         c.inputs[0] = inputs;
+        c.manual = true;
         self.setup_other_inputs(&mut c);
         Some(c)
     }
@@ -369,7 +382,7 @@ impl VersionSet {
         let current = current.borrow();
 
         let level = compaction.level;
-        let (smallest, mut largest) = get_range(&self.cmp, compaction.inputs[0].iter());
+        let (mut smallest, mut largest) = get_range(&self.cmp, compaction.inputs[0].iter());
 
         // Set up level+1 inputs.
         compaction.inputs[1] = current.overlapping_inputs(level + 1, &smallest, &largest);
@@ -408,7 +421,7 @@ impl VersionSet {
                         total_size(expanded1.iter())
                     );
 
-                    // smallest = new_start;
+                    smallest = new_start;
                     largest = new_limit;
                     compaction.inputs[0] = expanded0;
                     compaction.inputs[1] = expanded1;
@@ -968,16 +981,15 @@ fn get_range<'a, C: Cmp, I: Iterator<Item = &'a FileMetaHandle>>(
     (smallest.unwrap(), largest.unwrap())
 }
 
-fn total_size<'a, I: Iterator<Item = &'a FileMetaHandle>>(files: I) -> usize {
-    files.fold(0, |a, f| a + f.borrow().size)
-}
-
 #[cfg(test)]
 mod tests {
 
     use crate::{
-        cmp::DefaultCmp, key_types::LookupKey, test_util::LdbIteratorIter, types::FileMetaData,
-        version::testutil::make_version,
+        cmp::DefaultCmp,
+        key_types::LookupKey,
+        test_util::LdbIteratorIter,
+        types::FileMetaData,
+        version::{testutil::make_version, total_size},
     };
 
     use super::*;

@@ -116,11 +116,11 @@ impl<W: Write> LogWriter<W> {
 pub struct LogReader<R: Read> {
     // TODO: Wrap src in a buffer to enhance read performance.
     src: R,
+    digest: crc32::Digest,
     blk_off: usize,
     blocksize: usize,
-    checksums: bool,
-    digest: crc32::Digest,
     head_scratch: [u8; 7],
+    checksums: bool,
 }
 
 impl<R: Read> LogReader<R> {
@@ -130,8 +130,8 @@ impl<R: Read> LogReader<R> {
             blk_off: 0,
             blocksize: BLOCK_SIZE,
             checksums: chksum,
-            digest: crc32::Digest::new(crc32::CASTAGNOLI),
             head_scratch: [0; 7],
+            digest: crc32::Digest::new(crc32::CASTAGNOLI),
         }
     }
 
@@ -147,9 +147,8 @@ impl<R: Read> LogReader<R> {
         loop {
             if self.blocksize - self.blk_off < HEADER_SIZE {
                 //skip to next block
-                let _ = self
-                    .src
-                    .read(&mut self.head_scratch[0..self.blocksize - self.blk_off]);
+                self.src
+                    .read_exact(&mut self.head_scratch[0..self.blocksize - self.blk_off])?;
 
                 self.blk_off = 0;
             }

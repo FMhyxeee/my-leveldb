@@ -62,6 +62,7 @@ impl DB {
     // RECOVERY AND INITIALIZATION //
 
     /// new initializes a new DB object, but doesn't touch disk.
+    /// TODO: Fix the log initialization.
     fn new(name: &str, mut opt: Options) -> DB {
         let log = open_info_log(opt.env.as_ref().as_ref(), name);
         opt.log = share(log);
