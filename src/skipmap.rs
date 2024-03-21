@@ -322,6 +322,7 @@ impl LdbIterator for SkipMapIter {
     }
 
     fn seek(&mut self, key: &[u8]) {
+        println!("This time to seek: {:?}", key);
         if let Some(node) = self.map.borrow().get_greater_or_equal(key) {
             self.current = node as *const Node;
             return;
