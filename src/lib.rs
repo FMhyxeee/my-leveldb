@@ -44,6 +44,7 @@ mod merging_iter;
 mod options;
 mod skipmap;
 mod snapshot;
+mod table_block;
 mod table_builder;
 mod table_cache;
 mod table_reader;
