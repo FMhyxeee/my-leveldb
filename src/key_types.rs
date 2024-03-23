@@ -1,6 +1,6 @@
-use std::io::Write;
+use std::{cmp::Ordering, io::Write};
 
-use crate::types::SequenceNumber;
+use crate::{types::SequenceNumber, Cmp};
 
 use integer_encoding::{FixedInt, FixedIntWriter, VarInt, VarIntWriter};
 
@@ -148,6 +148,28 @@ pub fn parse_memtable_key(mkey: MemtableKey) -> (usize, usize, u64, usize, usize
     }
 }
 
+// cmp_memtable_key efficiently compares two memtable keys by parsing what's actually needed.
+pub fn cmp_memtable_key(ucmp: &dyn Cmp, a: MemtableKey, b: MemtableKey) -> Ordering {
+    let (alen, aoff): (usize, usize) = VarInt::decode_var(a).unwrap();
+    let (blen, boff): (usize, usize) = VarInt::decode_var(b).unwrap();
+    let userkey_a = &a[aoff..aoff + alen - 8];
+    let userkey_b = &b[boff..boff + blen - 8];
+
+    match ucmp.cmp(userkey_a, userkey_b) {
+        Ordering::Less => Ordering::Less,
+        Ordering::Greater => Ordering::Greater,
+        Ordering::Equal => {
+            let atag = FixedInt::decode_fixed(&a[aoff + alen - 8..aoff + alen]);
+            let btag = FixedInt::decode_fixed(&b[boff + blen - 8..boff + blen]);
+            let (_, aseq) = parse_tag(atag);
+            let (_, bseq) = parse_tag(btag);
+
+            // reverse!
+            bseq.cmp(&aseq)
+        }
+    }
+}
+
 /// Parse a key in Internal format.
 pub fn parse_internal_key(ikey: InternalKey) -> (ValueType, SequenceNumber, UserKey) {
     if ikey.is_empty() {
@@ -158,6 +180,21 @@ pub fn parse_internal_key(ikey: InternalKey) -> (ValueType, SequenceNumber, User
     let (typ, seq) = parse_tag(FixedInt::decode_fixed(&ikey[ikey.len() - 8..]));
 
     (typ, seq, &ikey[0..ikey.len() - 8])
+}
+
+/// cmp_internal_key efficiently compares keys in InternalKey format by only parsing the parts that
+/// are actually needed for a comparison.
+pub fn cmp_internal_key(ucmp: &dyn Cmp, a: InternalKey, b: InternalKey) -> Ordering {
+    match ucmp.cmp(&a[0..a.len() - 8], &b[0..b.len() - 8]) {
+        Ordering::Less => Ordering::Less,
+        Ordering::Greater => Ordering::Greater,
+        Ordering::Equal => {
+            let seqa = parse_tag(FixedInt::decode_fixed(&a[a.len() - 8..])).1;
+            let seqb = parse_tag(FixedInt::decode_fixed(&b[b.len() - 8..])).1;
+            // reverse comparison!
+            seqb.cmp(&seqa)
+        }
+    }
 }
 
 /// truncate_to_userkey performs an in-place conversion from InternalKey to UserKey format.

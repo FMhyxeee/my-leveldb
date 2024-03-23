@@ -119,7 +119,6 @@ impl InnerSkipMap {
             unsafe {
                 if let Some(next) = (*current).skips[level] {
                     let ord = self.cmp.cmp((*next).key.as_slice(), key);
-
                     match ord {
                         Ordering::Less => {
                             current = next;
@@ -322,7 +321,6 @@ impl LdbIterator for SkipMapIter {
     }
 
     fn seek(&mut self, key: &[u8]) {
-        println!("This time to seek: {:?}", key);
         if let Some(node) = self.map.borrow().get_greater_or_equal(key) {
             self.current = node as *const Node;
             return;
@@ -393,8 +391,10 @@ pub mod tests {
 
     #[test]
     fn test_insert() {
-        let skm = make_skipmap();
-        assert_eq!(skm.len(), 26);
+        let mut skm = make_skipmap();
+        skm.insert("abaa".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        skm.insert("abac".as_bytes().to_vec(), "def".as_bytes().to_vec());
+        assert_eq!(skm.len(), 28);
         skm.map.borrow().dbg_print();
     }
 

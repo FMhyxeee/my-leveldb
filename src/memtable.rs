@@ -48,11 +48,9 @@ impl MemTable {
     pub fn get(&self, key: &LookupKey) -> (Option<Vec<u8>>, bool) {
         let mut iter = self.map.iter();
         let k = key.memtable_key();
-        println!("Key is {:?}", k);
         iter.seek(k);
 
         if let Some((foundkey, _)) = current_key_val(&iter) {
-            println!("Foundkey is {:?}", foundkey);
             let (fkeylen, fkeyoff, tag, vallen, valoff) = parse_memtable_key(&foundkey);
 
             // Compare user key -- if equal, proceed
@@ -225,47 +223,45 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_memtable_add_get() {
         let mt = get_memtable();
 
         // Smaller sequence number doesn't find entry
-        if let Some(v) = mt.get(&LookupKey::new("abc".as_bytes(), 110)).0 {
+        if mt.get(&LookupKey::new("abc".as_bytes(), 110)).0.is_some() {
+            panic!("found");
+        }
+
+        if let Some(v) = mt.get(&LookupKey::new("abf".as_bytes(), 110)).0 {
             println!("{:?}", v);
             panic!("found");
         }
 
-        // if let Some(v) = mt.get(&LookupKey::new("abf".as_bytes(), 110)).0 {
-        //     println!("{:?}", v);
-        //     panic!("found");
-        // }
+        // Bigger sequence number falls back to next smaller
+        if let Some(v) = mt.get(&LookupKey::new("abc".as_bytes(), 116)).0 {
+            assert_eq!(v, "122".as_bytes());
+        } else {
+            panic!("not found");
+        }
 
-        // // Bigger sequence number falls back to next smaller
-        // if let Some(v) = mt.get(&LookupKey::new("abc".as_bytes(), 116)).0 {
-        //     assert_eq!(v, "122".as_bytes());
-        // } else {
-        //     panic!("not found");
-        // }
+        // Exact match works
+        if let (Some(v), deleted) = mt.get(&LookupKey::new("abc".as_bytes(), 120)) {
+            assert_eq!(v, "123".as_bytes());
+            assert!(!deleted);
+        } else {
+            panic!("not found");
+        }
 
-        // // Exact match works
-        // if let (Some(v), deleted) = mt.get(&LookupKey::new("abc".as_bytes(), 120)) {
-        //     assert_eq!(v, "123".as_bytes());
-        //     assert!(!deleted);
-        // } else {
-        //     panic!("not found");
-        // }
+        if let (None, deleted) = mt.get(&LookupKey::new("abe".as_bytes(), 122)) {
+            assert!(deleted);
+        } else {
+            panic!("found deleted");
+        }
 
-        // if let (None, deleted) = mt.get(&LookupKey::new("abe".as_bytes(), 122)) {
-        //     assert!(deleted);
-        // } else {
-        //     panic!("found deleted");
-        // }
-
-        // if let Some(v) = mt.get(&LookupKey::new("abf".as_bytes(), 129)).0 {
-        //     assert_eq!(v, "126".as_bytes());
-        // } else {
-        //     panic!("not found");
-        // }
+        if let Some(v) = mt.get(&LookupKey::new("abf".as_bytes(), 129)).0 {
+            assert_eq!(v, "126".as_bytes());
+        } else {
+            panic!("not found");
+        }
     }
 
     #[test]
@@ -285,7 +281,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_memtable_iterator_seek() {
         let mt = get_memtable();
         let mut iter = mt.iter();
@@ -389,7 +384,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_memtable_iterator_behavior() {
         let mut mt = MemTable::new(options::for_test().cmp);
         let entries = [
