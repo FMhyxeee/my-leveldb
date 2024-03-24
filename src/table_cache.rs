@@ -130,7 +130,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_table_cache() {
         // Tests that a table can be written to a MemFS file, read back by the table cache and
         // parsed/iterated by the table reader.
@@ -154,5 +153,10 @@ mod tests {
             LdbIteratorIter::wrap(&mut cache.get_table(123).unwrap().iter()).count(),
             4
         );
+
+        assert!(cache.cache.get(&filenum_to_key(123)).is_some());
+        assert!(cache.evict(123).is_ok());
+        assert!(cache.evict(123).is_err());
+        assert!(cache.cache.get(&filenum_to_key(123)).is_none());
     }
 }
