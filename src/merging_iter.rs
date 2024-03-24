@@ -36,7 +36,9 @@ impl MergingIter {
         for i in 0..self.iters.len() {
             self.iters[i].reset();
             self.iters[i].advance();
-            assert!(self.iters[i].valid());
+            if !self.iters[i].valid() {
+                self.iters[i].reset()
+            }
         }
         self.find_smallest();
     }
@@ -59,7 +61,7 @@ impl MergingIter {
                         self.direction = Direction::Forward;
                         for i in 0..self.iters.len() {
                             if i != current {
-                                self.iters[i].seek(&keybuf);
+                                self.iters[i].seek(&key);
                                 // This doesn't work if two iterators are returning the exact same
                                 // keys. However, in reality, two entries will always have differing
                                 // sequence numbers.
@@ -71,7 +73,7 @@ impl MergingIter {
                             }
                         }
                     }
-                    Direction::Reverse if self.direction == Direction::Reverse => {
+                    Direction::Reverse if self.direction == Direction::Forward => {
                         self.direction = Direction::Reverse;
                         for i in 0..self.iters.len() {
                             if i != current {
@@ -250,7 +252,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_merging_behavior() {
         let val = "def".as_bytes();
         let iter = TestLdbIter::new(vec![(b("aba"), val), (b("abc"), val)]);
@@ -263,7 +264,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_merging_forward_backward() {
         let val = "def".as_bytes();
         let iter = TestLdbIter::new(vec![(b("aba"), val), (b("abc"), val), (b("abe"), val)]);
@@ -364,33 +364,5 @@ mod tests {
             current_key_val(&iter),
             Some((b("aba").to_vec(), val.to_vec()))
         );
-    }
-
-    // #[test]
-    fn test_merging_fwd_bckwd_2() {
-        let val = "def".as_bytes();
-
-        let it1 = TestLdbIter::new(vec![(b("aba"), val), (b("abc"), val), (b("abe"), val)]);
-        let it2 = TestLdbIter::new(vec![(b("abb"), val), (b("abd"), val)]);
-
-        let mut iter = MergingIter::new(
-            Rc::new(Box::new(DefaultCmp)),
-            vec![Box::new(it1), Box::new(it2)],
-        );
-
-        iter.next();
-        iter.next();
-        loop {
-            let a = iter.next();
-
-            if a.is_none() {
-                break;
-            }
-            let b = iter.prev();
-            let c = iter.next();
-            iter.next();
-
-            println!("{:?}", (a, b, c));
-        }
     }
 }
