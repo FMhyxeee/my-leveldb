@@ -128,20 +128,14 @@ pub fn build_memtable_key(key: &[u8], value: &[u8], t: ValueType, seq: SequenceN
 /// meaningless.
 pub fn parse_memtable_key(mkey: MemtableKey) -> (usize, usize, u64, usize, usize) {
     let (keylen, mut i): (usize, usize) = VarInt::decode_var(mkey).unwrap();
-
     let keyoff = i;
     i += keylen - 8;
-
     if mkey.len() > i {
         let tag = FixedInt::decode_fixed(&mkey[i..i + 8]);
         i += 8;
-
         let (vallen, j): (usize, usize) = VarInt::decode_var(&mkey[i..]).unwrap();
-
         i += j;
-
         let valoff = i;
-
         (keylen - 8, keyoff, tag, vallen, valoff)
     } else {
         (keylen - 8, keyoff, 0, 0, 0)
