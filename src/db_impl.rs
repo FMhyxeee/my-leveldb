@@ -93,9 +93,11 @@ impl DB {
         self.vset.borrow().current()
     }
 
-    /// Opens or creates* a new or existing database.
+    /// Opens or creates a new or existing database. `name` is the name of the directory containing
+    /// the database.
     ///
-    /// *depending on the options set (create_if_missing, error_if_exists).
+    /// Whether a new database is created and what happens if a database exists at the given path
+    /// depends on the options set (`create_if_missing`, `error_if_exists`).
     pub fn open(name: &str, opt: Options) -> Result<DB> {
         let mut db = DB::new(name, opt);
         let mut ve = VersionEdit::new();
@@ -145,6 +147,10 @@ impl DB {
     /// recover recovers from the existing state on disk. If the wrapped result is `true`, then
     /// log_and_apply() should be called after recovery has finished.
     fn recover(&mut self, ve: &mut VersionEdit) -> Result<bool> {
+        if self.opt.error_if_exists && self.opt.env.exists(self.name.as_ref()).unwrap_or(false) {
+            return err(StatusCode::AlreadyExists, "database already exists");
+        }
+
         self.opt.env.mkdir(Path::new(&self.name)).unwrap();
         self.acquire_lock()?;
 
@@ -157,13 +163,7 @@ impl DB {
                     "database does not exist and create_if_missing is false",
                 );
             }
-        } else if self.opt.error_if_exists {
-            return err(
-                StatusCode::InvalidArgument,
-                "database already exists and error_if_exists is true",
-            );
         }
-
         // If save_manifest is true, we should log_and_apply() later in order to write
         // manifest.
         let mut save_manifest = self.vset.borrow_mut().recover()?;
