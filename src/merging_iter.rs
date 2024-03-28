@@ -136,7 +136,7 @@ impl LdbIterator for MergingIter {
         if let Some(current) = self.current {
             self.update_direction(Direction::Forward);
             if !self.iters[current].advance() {
-                // Take this iterator out of rotation; this will return None
+                // Take this iterator out of rotation; this will return false
                 // for every call to current() and thus it will be ignored
                 // from here on.
                 self.iters[current].reset();
