@@ -734,6 +734,8 @@ mod tests {
 
     use super::testutil::make_version;
 
+    type TestCase<'a> = [(&'a [u8], u64, Result<Option<Vec<u8>>>)];
+
     #[test]
     #[ignore]
     fn test_version_concat_iter() {
@@ -797,12 +799,16 @@ mod tests {
     fn test_version_get_simple() {
         let v = make_version().0;
         type Case<'a> = (&'a [u8], u64, Result<Option<Vec<u8>>>);
-        let cases: &[Case] = &[
-            ("aaa".as_bytes(), 0, Ok(None)),
-            ("aaa".as_bytes(), 1, Ok(Some("val1".as_bytes().to_vec()))),
+        let cases: &TestCase = &[
+            ("aaa".as_bytes(), 1, Ok(None)),
             ("aaa".as_bytes(), 100, Ok(Some("val1".as_bytes().to_vec()))),
+            ("aaa".as_bytes(), 21, Ok(Some("val0".as_bytes().to_vec()))),
             ("aab".as_bytes(), 0, Ok(None)),
             ("aab".as_bytes(), 100, Ok(Some("val2".as_bytes().to_vec()))),
+            ("aac".as_bytes(), 100, Ok(None)),
+            ("aac".as_bytes(), 25, Ok(Some("val3".as_bytes().to_vec()))),
+            ("aba".as_bytes(), 100, Ok(Some("val3".as_bytes().to_vec()))),
+            ("aba".as_bytes(), 25, Ok(Some("val4".as_bytes().to_vec()))),
             ("data".as_bytes(), 100, Ok(Some("val1".as_bytes().to_vec()))),
             ("dab".as_bytes(), 1, Ok(None)),
             ("dac".as_bytes(), 100, Ok(None)),
