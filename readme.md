@@ -4,8 +4,8 @@ It's one by one copy project from leveldb-rs.
 
 **Goal：** A fully compatible implementation of levelDB in Rust.
 
-The implementation is very close to the original; often, you can see the same
-algorithm translated 1:1, and class (struct) and methods names are similar or the same
+The implementation is very close to the original; often, you can see the same algorithm translated 1:1, and class (struct) and methods names are similar or the same.
+
 
 ## Status
 
