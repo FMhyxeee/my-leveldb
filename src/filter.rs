@@ -106,7 +106,7 @@ impl BloomPolicy {
 
         if limit - ix > 0 {
             for (i, b) in data[ix..].iter().enumerate() {
-                h += (*b as u32) << (8 * i);
+                h = h.overflowing_add((*b as u32) << (8 * i)).0;
             }
 
             h = (h as u64 * m as u64) as u32;
