@@ -227,7 +227,6 @@ impl LdbIterator for DBIterator {
                 truncate_to_userkey(&mut self.keybuf);
 
                 if self.cmp.cmp(&self.keybuf, &self.savedkey) == Ordering::Less {
-                    println!("breaking with {:?} / {:?}", self.keybuf, self.savedval);
                     break;
                 }
             }

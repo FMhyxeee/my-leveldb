@@ -1182,7 +1182,7 @@ mod tests {
         let v = v.borrow();
 
         // num_level_bytes()
-        assert_eq!(434, v.num_level_bytes(0));
+        assert_eq!(483, v.num_level_bytes(0));
         assert_eq!(651, v.num_level_bytes(1));
         assert_eq!(434, v.num_level_bytes(2));
         // num_level_files()

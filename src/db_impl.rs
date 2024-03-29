@@ -1084,8 +1084,8 @@ pub mod testutil {
         ve.set_log_num(0);
         // 9 files + 1 manifest we write below.
         ve.set_next_file(11);
-        // 28 entries in these tables.
-        ve.set_last_seq(28);
+        // 30 entries in these tables.
+        ve.set_last_seq(30);
 
         for l in 0..NUM_LEVELS {
             for f in &v.files[l] {
@@ -1457,10 +1457,11 @@ mod tests {
     fn test_db_impl_get_from_table_with_snapshot() {
         let (mut db, _opt) = build_db();
 
-        assert_eq!(28, db.vset.borrow().last_seq);
-        // seq = 29
+        assert_eq!(30, db.vset.borrow().last_seq);
+        // seq = 31
         db.put("xyy".as_bytes(), "123".as_bytes()).unwrap();
         let old_ss = db.get_snapshot();
+        // seq = 32
         db.put("xyz".as_bytes(), "123".as_bytes()).unwrap();
         db.flush().unwrap();
         assert!(db.get_at(&old_ss, "xyy".as_bytes()).unwrap().is_some());
@@ -1471,11 +1472,11 @@ mod tests {
             "123".as_bytes(),
             db.get("xyz".as_bytes()).unwrap().as_slice()
         );
-        assert!(db.get_internal(29, "xyy".as_bytes()).unwrap().is_some());
-        assert!(db.get_internal(30, "xyy".as_bytes()).unwrap().is_some());
+        assert!(db.get_internal(31, "xyy".as_bytes()).unwrap().is_some());
+        assert!(db.get_internal(32, "xyy".as_bytes()).unwrap().is_some());
 
-        assert!(db.get_internal(29, "xyz".as_bytes()).unwrap().is_none());
-        assert!(db.get_internal(30, "xyz".as_bytes()).unwrap().is_some());
+        assert!(db.get_internal(31, "xyz".as_bytes()).unwrap().is_none());
+        assert!(db.get_internal(32, "xyz".as_bytes()).unwrap().is_some());
 
         // table get
         assert_eq!(
@@ -1483,7 +1484,7 @@ mod tests {
             db.get("eab".as_bytes()).unwrap().as_slice()
         );
         assert!(db.get_internal(3, "eab".as_bytes()).unwrap().is_none());
-        assert!(db.get_internal(30, "eab".as_bytes()).unwrap().is_some());
+        assert!(db.get_internal(32, "eab".as_bytes()).unwrap().is_some());
 
         {
             let ss = db.get_snapshot();
