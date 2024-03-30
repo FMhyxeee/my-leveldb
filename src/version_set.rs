@@ -14,11 +14,11 @@ use crate::{
     version_edit::VersionEdit,
 };
 
-use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::io::Write;
 use std::path::Path;
 use std::rc::Rc;
+use std::{cmp::Ordering, path::PathBuf};
 
 pub struct Compaction {
     level: usize,
@@ -168,7 +168,7 @@ impl Compaction {
 /// VersionSet managed the various versions that are live within a database. A single version
 /// contains references to the files on disk as they were at a certain point.
 pub struct VersionSet {
-    dbname: String,
+    dbname: PathBuf,
     opt: Options,
     cmp: InternalKeyCmp,
     cache: Shared<TableCache>,
@@ -188,10 +188,10 @@ pub struct VersionSet {
 impl VersionSet {
     // Note: opt.cmp should not contain an InternalKeyCmp at this point, but instead the default or
     // user-supplied one.
-    pub fn new(db: &str, opt: Options, cache: Shared<TableCache>) -> VersionSet {
+    pub fn new<P: AsRef<Path>>(db: P, opt: Options, cache: Shared<TableCache>) -> VersionSet {
         let v = share(Version::new(cache.clone(), opt.cmp.clone()));
         VersionSet {
-            dbname: db.to_string(),
+            dbname: db.as_ref().to_owned(),
             cmp: InternalKeyCmp(opt.cmp.clone()),
             opt,
             cache,
@@ -558,7 +558,6 @@ impl VersionSet {
 
     /// recover recovers the state of a LevelDB instance from the files on disk. If recover()
     /// returns true, the a manifest needs to be written eventually (usning log_and_apply()).
-    #[allow(clippy::read_zero_byte_vec)]
     pub fn recover(&mut self) -> Result<bool> {
         assert!(self.current.is_some());
 
@@ -566,8 +565,9 @@ impl VersionSet {
 
         let len = current.len();
         current.truncate(len - 1);
+        let current = Path::new(&current);
 
-        let descfilename = format!("{}/{}", self.dbname, current);
+        let descfilename = self.dbname.join(current);
         let mut builder = Builder::new();
         {
             let mut descfile = self
@@ -657,11 +657,15 @@ impl VersionSet {
         );
 
         // A new manifest needs to be written only if we don't reuse the existing one.
-        Ok(self.reuse_manifest(&descfilename, &current))
+        Ok(!self.reuse_manifest(&descfilename, current))
     }
 
     /// reuse_manifest checks whether the current manifest can be reused.
-    fn reuse_manifest(&mut self, current_manifest_path: &str, current_manifest_base: &str) -> bool {
+    fn reuse_manifest(
+        &mut self,
+        current_manifest_path: &Path,
+        current_manifest_base: &Path,
+    ) -> bool {
         // Note: The original has only one option, reuse_logs; reuse_logs has to be set in order to
         // reuse manifests.
         // However, there's not much that stops us from reusing manifests without reusing logs or
@@ -690,7 +694,7 @@ impl VersionSet {
                 .env
                 .open_appendable_file(Path::new(current_manifest_path));
             if let Ok(f) = s {
-                log!(self.opt.log, "reusing manifest {}", current_manifest_path);
+                log!(self.opt.log, "reusing manifest {:?}", current_manifest_path);
                 self.descriptor_log = Some(LogWriter::new(f));
                 self.manifest_num = num;
                 return true;
@@ -843,24 +847,27 @@ impl Builder {
     }
 }
 
-fn manifest_name(file_num: FileNum) -> String {
-    format!("MANIFEST-{:06}", file_num)
+fn manifest_name(file_num: FileNum) -> PathBuf {
+    Path::new(&format!("MANIFEST-{:06}", file_num)).to_owned()
 }
 
-pub fn manifest_file_name(dbname: &str, file_num: FileNum) -> String {
-    format!("{}/{}", dbname, manifest_name(file_num))
+pub fn manifest_file_name<P: AsRef<Path>>(dbname: P, file_num: FileNum) -> PathBuf {
+    dbname.as_ref().join(manifest_name(file_num)).to_owned()
 }
 
-fn temp_file_name(dbname: &str, file_num: FileNum) -> String {
-    format!("{}/{:06}.dbtmp", dbname, file_num)
+fn temp_file_name<P: AsRef<Path>>(dbname: P, file_num: FileNum) -> PathBuf {
+    dbname
+        .as_ref()
+        .join(format!("{:06}.dbtmp", file_num))
+        .to_owned()
 }
 
-fn current_file_name(dbname: &str) -> String {
-    format!("{}/CURRENT", dbname)
+fn current_file_name<P: AsRef<Path>>(dbname: P) -> PathBuf {
+    dbname.as_ref().join("CURRENT").to_owned()
 }
 
 #[allow(clippy::borrowed_box)]
-pub fn read_current_file(env: &Box<dyn Env>, dbname: &str) -> Result<String> {
+pub fn read_current_file(env: &Box<dyn Env>, dbname: &Path) -> Result<String> {
     let mut current = String::new();
     let mut f = env.open_sequential_file(Path::new(&current_file_name(dbname)))?;
     f.read_to_string(&mut current)?;
@@ -874,17 +881,18 @@ pub fn read_current_file(env: &Box<dyn Env>, dbname: &str) -> Result<String> {
 }
 
 #[allow(clippy::borrowed_box)]
-pub fn set_current_file(
+pub fn set_current_file<P: AsRef<Path>>(
     env: &Box<dyn Env>,
-    dbname: &str,
+    dbname: P,
     manifest_file_num: FileNum,
 ) -> Result<()> {
+    let dbname = dbname.as_ref();
     let manifest_base = manifest_name(manifest_file_num);
     let tempfile = temp_file_name(dbname, manifest_file_num);
 
     {
         let mut f = env.open_writable_file(Path::new(&tempfile))?;
-        f.write_all(manifest_base.as_bytes())?;
+        f.write_all(manifest_base.as_os_str().as_encoded_bytes())?;
         f.write_all("\n".as_bytes())?;
     }
     let currentfile = current_file_name(dbname);
