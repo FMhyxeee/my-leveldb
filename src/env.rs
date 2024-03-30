@@ -5,7 +5,7 @@ use crate::error::Result;
 
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
 use std::os::unix::fs::FileExt;
@@ -41,7 +41,7 @@ pub trait Env {
     fn open_appendable_file(&self, _: &Path) -> Result<Box<dyn Write>>;
 
     fn exists(&self, _: &Path) -> Result<bool>;
-    fn children(&self, _: &Path) -> Result<Vec<String>>;
+    fn children(&self, _: &Path) -> Result<Vec<PathBuf>>;
     fn size_of(&self, _: &Path) -> Result<usize>;
 
     fn delete(&self, _: &Path) -> Result<()>;

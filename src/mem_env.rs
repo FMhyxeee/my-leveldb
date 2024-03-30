@@ -4,7 +4,7 @@ use std::{
     collections::{hash_map::Entry, HashMap},
     io::{self, Read, Write},
     ops::Deref,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
@@ -169,7 +169,7 @@ impl MemFS {
         let fs = self.store.lock()?;
         Ok(fs.contains_key(&path_to_string(p)))
     }
-    fn children_of(&self, p: &Path) -> Result<Vec<String>> {
+    fn children_of(&self, p: &Path) -> Result<Vec<PathBuf>> {
         let fs = self.store.lock()?;
         let mut prefix = path_to_string(p);
         if !prefix.ends_with('/') {
@@ -178,7 +178,7 @@ impl MemFS {
         let mut children = Vec::new();
         for k in fs.keys() {
             if k.starts_with(&prefix) {
-                children.push(k.trim_start_matches(&prefix).to_string());
+                children.push(Path::new(k.trim_start_matches(&prefix)).to_owned());
             }
         }
         Ok(children)
@@ -304,7 +304,7 @@ impl Env for MemEnv {
     fn exists(&self, p: &Path) -> Result<bool> {
         self.0.exists_(p)
     }
-    fn children(&self, p: &Path) -> Result<Vec<String>> {
+    fn children(&self, p: &Path) -> Result<Vec<PathBuf>> {
         self.0.children_of(p)
     }
     fn size_of(&self, p: &Path) -> Result<usize> {
@@ -506,6 +506,10 @@ mod tests {
         assert!(fs.rename_(nonexist, path).is_err());
     }
 
+    fn s2p(x: &str) -> PathBuf {
+        Path::new(x).to_owned()
+    }
+
     #[test]
     fn test_mem_fs_children() {
         let fs = MemFS::new();
@@ -515,13 +519,19 @@ mod tests {
             Path::new("/b/1.txt"),
         );
 
-        for p in &[path1, path2, path3] {
+        for p in &[&path1, &path2, &path3] {
             fs.open_w(p, false, false).unwrap();
         }
         let children = fs.children_of(Path::new("/a")).unwrap();
-        assert!((children == vec!["1.txt", "2.txt"]) || (children == vec!["2.txt", "1.txt"]));
+        assert!(
+            (children == vec![s2p("1.txt"), s2p("2.txt")])
+                || (children == vec![s2p("2.txt"), s2p("1.txt")])
+        );
         let children = fs.children_of(Path::new("/a/")).unwrap();
-        assert!((children == vec!["1.txt", "2.txt"]) || (children == vec!["2.txt", "1.txt"]));
+        assert!(
+            (children == vec![s2p("1.txt"), s2p("2.txt")])
+                || (children == vec![s2p("2.txt"), s2p("1.txt")])
+        );
     }
 
     #[test]
