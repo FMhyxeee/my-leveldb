@@ -64,6 +64,7 @@ impl Env for PosixDiskEnv {
         Ok(Box::new(
             fs::OpenOptions::new()
                 .create(true)
+                .truncate(true)
                 .write(true)
                 .append(false)
                 .open(p)
@@ -74,7 +75,7 @@ impl Env for PosixDiskEnv {
         Ok(Box::new(
             fs::OpenOptions::new()
                 .create(true)
-                .write(true)
+                .truncate(false)
                 .append(true)
                 .open(p)
                 .map_err(|e| map_err_with_name("open (append)", p, e))?,
@@ -123,6 +124,7 @@ impl Env for PosixDiskEnv {
             let f = fs::OpenOptions::new()
                 .write(true)
                 .create(true)
+                .truncate(false)
                 .open(p)
                 .map_err(|e| map_err_with_name("lock", p, e))?;
 

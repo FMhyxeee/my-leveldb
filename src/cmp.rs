@@ -60,11 +60,30 @@ impl Cmp for DefaultCmp {
             diff_at += 1;
         }
 
+        let mut sep = Vec::with_capacity(a.len() + 1);
+        sep.extend_from_slice(a);
+        // Try increasing a and check if it's still smaller than b. First find the last byte
+        // smaller than 0xff, and then increment that byte. Only if the separator is lesser than b.
+        // return it.
+        let mut i = a.len() - 1;
+        while i > 0 && sep[i] == 0xff {
+            i -= 1;
+        }
+        if sep[i] < 0xff {
+            sep[i] += 1;
+            if self.cmp(&sep, b) == Ordering::Less {
+                return sep;
+            } else {
+                sep[i] -= 1;
+            }
+        }
+
         // Backup case: either `a` is full of 0xff, or all different places are less than 2
         // characters apart.
-        // The result is not necessarily short, but a good separator.
-        let mut sep = a.to_vec();
-        sep[a.len() - 1] += 1;
+        // The result is not necessarily short, but a good separator: e.g., "abc" vs "abd" ->
+        // "abc\0", which is greater than abc and lesser than abd.
+        // Append a 0 byte; by making it longer than a, it will compare greater to it.
+        sep.extend_from_slice(&[0]);
         sep
     }
 
@@ -148,30 +167,9 @@ impl Cmp for MemtableKeyCmp {
         panic!("find* functions are invalid on MemtableKeyCmp");
     }
 
-    // let (akeylen, akeyoff, atag, _, _) = key_types::parse_memtable_key(a);
-    // let (bkeylen, bkeyoff, _, _, _) = key_types::parse_memtable_key(a);
-    // let (atyp, aseq) = key_types::parse_tag(atag);
-    //
-    // let sep: Vec<u8> = self.0.find_shortest_sep(&a[akeyoff..akeyoff + akeylen],
-    // &b[bkeyoff..bkeyoff + bkeylen]);
-    //
-    // if sep.len() < akeylen &&
-    // self.0.cmp(&a[akeyoff..akeyoff + akeylen], &sep) == Ordering::Less {
-    // return key_types::build_memtable_key(&sep, &[0; 0], atyp, types::MAX_SEQUENCE_NUMBER);
-    // }
-    // return key_types::build_memtable_key(&sep, &[0; 0], atyp, aseq);
-    //
-
     fn find_short_succ(&self, _: &[u8]) -> Vec<u8> {
         panic!("find* functions are invalid on MemtableKeyCmp");
     }
-
-    // let (keylen, keyoff, tag, _, _) = key_types::parse_memtable_key(a);
-    // let (typ, seq) = key_types::parse_tag(tag);
-    //
-    // let succ: Vec<u8> = self.0.find_short_succ(&a[keyoff..keyoff + keylen]);
-    // return key_types::build_memtable_key(&succ, &[0; 0], typ, seq);
-    //
 }
 
 #[cfg(test)]
@@ -199,7 +197,7 @@ mod tests {
         );
         assert_eq!(
             DefaultCmp.find_shortest_sep("a".as_bytes(), "b".as_bytes()),
-            "b".as_bytes()
+            "a\0".as_bytes()
         );
         assert_eq!(
             DefaultCmp.find_shortest_sep("abc".as_bytes(), "zzz".as_bytes()),

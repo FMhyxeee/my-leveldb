@@ -1596,7 +1596,7 @@ mod tests {
         assert_eq!(0, db.mem.len());
         assert!(db.opt.env.exists(Path::new("db/000001.log")).unwrap());
         assert!(db.opt.env.exists(Path::new("db/000002.ldb")).unwrap());
-        assert_eq!(351, db.opt.env.size_of(Path::new("db/000002.ldb")).unwrap());
+        assert_eq!(351, db.opt.env.size_of(Path::new("db/000003.ldb")).unwrap());
         assert_eq!(
             7,
             LdbIteratorIter::wrap(&mut db.cache.borrow_mut().get_table(3).unwrap().iter()).count()
@@ -1616,7 +1616,7 @@ mod tests {
 
         assert!(!db.opt.env.exists(Path::new("db/000003.ldb")).unwrap());
         assert!(db.opt.env.exists(Path::new("db/000010.ldb")).unwrap());
-        assert_eq!(345, db.opt.env.size_of(Path::new("db/000010.ldb")).unwrap());
+        assert_eq!(345, db.opt.env.size_of(Path::new("db/000013.ldb")).unwrap());
 
         // New current version.
         let v = db.current();

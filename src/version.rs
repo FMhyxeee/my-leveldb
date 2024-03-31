@@ -762,7 +762,7 @@ mod tests {
     #[ignore]
     fn test_version_max_next_level_overlapping() {
         let v = make_version().0;
-        assert_eq!(218, v.max_next_level_overlapping_bytes());
+        assert_eq!(219, v.max_next_level_overlapping_bytes());
     }
 
     #[test]
