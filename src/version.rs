@@ -220,16 +220,15 @@ impl Version {
     }
 
     /// update_stats updates the number of seeks, and remembers files with too many seeks as
-    /// compaction candidates.
+    /// compaction candidates. It returns true if a compaction makes sense.
     pub fn update_stats(&mut self, stats: GetStats) -> bool {
         if let Some(file) = stats.file {
-            {
-                file.borrow_mut().allowed_seeks -= 1;
-            }
-            if file.borrow().allowed_seeks < 1 && self.file_to_compact.is_none() {
+            if file.borrow().allowed_seeks <= 1 && self.file_to_compact.is_none() {
                 self.file_to_compact = Some(file.clone());
                 self.file_to_compact_lvl = stats.level;
                 return true;
+            } else if file.borrow().allowed_seeks > 0 {
+                file.borrow_mut().allowed_seeks -= 1;
             }
         }
         false

@@ -148,9 +148,30 @@ impl Cmp for MemtableKeyCmp {
         panic!("find* functions are invalid on MemtableKeyCmp");
     }
 
+    // let (akeylen, akeyoff, atag, _, _) = key_types::parse_memtable_key(a);
+    // let (bkeylen, bkeyoff, _, _, _) = key_types::parse_memtable_key(a);
+    // let (atyp, aseq) = key_types::parse_tag(atag);
+    //
+    // let sep: Vec<u8> = self.0.find_shortest_sep(&a[akeyoff..akeyoff + akeylen],
+    // &b[bkeyoff..bkeyoff + bkeylen]);
+    //
+    // if sep.len() < akeylen &&
+    // self.0.cmp(&a[akeyoff..akeyoff + akeylen], &sep) == Ordering::Less {
+    // return key_types::build_memtable_key(&sep, &[0; 0], atyp, types::MAX_SEQUENCE_NUMBER);
+    // }
+    // return key_types::build_memtable_key(&sep, &[0; 0], atyp, aseq);
+    //
+
     fn find_short_succ(&self, _: &[u8]) -> Vec<u8> {
         panic!("find* functions are invalid on MemtableKeyCmp");
     }
+
+    // let (keylen, keyoff, tag, _, _) = key_types::parse_memtable_key(a);
+    // let (typ, seq) = key_types::parse_tag(tag);
+    //
+    // let succ: Vec<u8> = self.0.find_short_succ(&a[keyoff..keyoff + keylen]);
+    // return key_types::build_memtable_key(&succ, &[0; 0], typ, seq);
+    //
 }
 
 #[cfg(test)]
