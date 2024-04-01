@@ -22,8 +22,6 @@ fn get_filter_index(offset: usize, base_lg2: u32) -> u32 {
 ///
 /// where offsets are 4 bytes, offset of offsets is 4 bytes, and log2 of FILTER_BASE is 1 bytes.
 /// Two consecutive filter offsets my be the same.
-///
-/// TODO: See if we can remove the lifetime parameter.
 pub struct FilterBlockBuilder {
     policy: BoxedFilterPolicy,
     // filters, concatenated
