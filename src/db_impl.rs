@@ -968,7 +968,7 @@ impl CompactionState {
     fn cleanup<P: AsRef<Path>>(&mut self, env: &Box<dyn Env>, name: P) {
         for o in self.outputs.drain(..) {
             let name = table_file_name(name.as_ref(), o.num);
-            let _ = env.delete(&name).is_ok();
+            let _ = env.delete(&name);
         }
     }
 }
@@ -1020,7 +1020,7 @@ pub fn build_table<I: LdbIterator, P: AsRef<Path>>(
     })();
 
     if let Err(e) = r {
-        let _ = opt.env.delete(Path::new(&filename)).is_ok();
+        let _ = opt.env.delete(Path::new(&filename));
         return Err(e);
     }
 
