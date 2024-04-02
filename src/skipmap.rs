@@ -68,6 +68,10 @@ impl SkipMap {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.map.borrow().len == 0
+    }
+
     pub fn len(&self) -> usize {
         self.map.borrow().len
     }
