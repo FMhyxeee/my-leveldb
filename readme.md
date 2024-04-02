@@ -10,19 +10,21 @@ The implementation is very close to the original; often, you can see the same al
 ## Status
 
 * User-facing methods exist: Read/Write/Delete; snapshots; iteration
-* Compaction is supported, but no manual ones.
+* Compaction is supported, including manual ones.
 * Fully synchronous: Efficiency gains by using non-atomic types, but writes may
-  occasionally block during a compaction.
-* Compatibility: Not yet assessed.
+  occasionally block during a compaction. In --release mode, an average compaction
+  takes 0.2-0.5 seconds.
+* Compatible with the original implementation. If it isn't (crash/read error/write error), it's a bug and needs to be fixed.
+* Performance is decent; while not quite up to par with the original (we don't use multithreading, for example) it is very much usable.
 
 ## Goals
 
-Some of the goals of this project are
+Some of the goals of this implementation are
 
-* A few copies of data as possible; most of the time, slices of bytes (`&[u8]`)
+* As few copies of data as possible; most of the time, slices of bytes (`&[u8]`)
   are used. Owned memory is represented as `Vec<u8>` (and then possibly borrowed
-  as slice)
-* Correctness  -- self-checking implementation, good test coverage, etc. Just
+  as slice). Zero-copy is not always possible, though, and sometimes simplicity is favored.
+* Correctness -- self-checking implementation, good test coverage, etc. Just
   like the original implementation.
 * Clarity; commented code, clear structure (hopefully doing a better job than
   the original implementation).

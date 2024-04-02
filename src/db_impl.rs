@@ -40,6 +40,7 @@ use crate::{
 /// is not concurrent (yet)
 pub struct DB {
     name: PathBuf,
+    path: PathBuf,
     lock: Option<FileLock>,
 
     internal_cmp: Rc<Box<dyn Cmp>>,
@@ -71,8 +72,11 @@ impl DB {
         let cache = share(TableCache::new(name, opt.clone(), opt.max_open_file - 10));
         let vset = VersionSet::new(name, opt.clone(), cache.clone());
 
+        let path = name.canonicalize().unwrap_or(name.to_owned());
+
         DB {
             name: name.to_owned(),
+            path,
             lock: None,
             internal_cmp: Rc::new(Box::new(InternalKeyCmp(opt.cmp.clone()))),
             fpol: InternalFilterPolicy::new(opt.filter_policy.clone()),

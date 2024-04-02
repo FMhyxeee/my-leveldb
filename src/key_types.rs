@@ -131,7 +131,7 @@ pub fn parse_memtable_key(mkey: MemtableKey) -> (usize, usize, u64, usize, usize
     let keyoff = i;
     i += keylen - 8;
     if mkey.len() > i {
-        let tag = FixedInt::decode_fixed(&mkey[i..i + 8]);
+        let tag = FixedInt::decode_fixed(&mkey[i..i + 8]).unwrap();
         i += 8;
         let (vallen, j): (usize, usize) = VarInt::decode_var(&mkey[i..]).unwrap();
         i += j;
@@ -153,8 +153,8 @@ pub fn cmp_memtable_key(ucmp: &dyn Cmp, a: MemtableKey, b: MemtableKey) -> Order
         Ordering::Less => Ordering::Less,
         Ordering::Greater => Ordering::Greater,
         Ordering::Equal => {
-            let atag = FixedInt::decode_fixed(&a[aoff + alen - 8..aoff + alen]);
-            let btag = FixedInt::decode_fixed(&b[boff + blen - 8..boff + blen]);
+            let atag = FixedInt::decode_fixed(&a[aoff + alen - 8..aoff + alen]).unwrap();
+            let btag = FixedInt::decode_fixed(&b[boff + blen - 8..boff + blen]).unwrap();
             let (_, aseq) = parse_tag(atag);
             let (_, bseq) = parse_tag(btag);
 
@@ -171,7 +171,7 @@ pub fn parse_internal_key(ikey: InternalKey) -> (ValueType, SequenceNumber, User
     }
     assert!(ikey.len() >= 8);
 
-    let (typ, seq) = parse_tag(FixedInt::decode_fixed(&ikey[ikey.len() - 8..]));
+    let (typ, seq) = parse_tag(FixedInt::decode_fixed(&ikey[ikey.len() - 8..]).unwrap());
 
     (typ, seq, &ikey[0..ikey.len() - 8])
 }
@@ -183,8 +183,8 @@ pub fn cmp_internal_key(ucmp: &dyn Cmp, a: InternalKey, b: InternalKey) -> Order
         Ordering::Less => Ordering::Less,
         Ordering::Greater => Ordering::Greater,
         Ordering::Equal => {
-            let seqa = parse_tag(FixedInt::decode_fixed(&a[a.len() - 8..])).1;
-            let seqb = parse_tag(FixedInt::decode_fixed(&b[b.len() - 8..])).1;
+            let seqa = parse_tag(FixedInt::decode_fixed(&a[a.len() - 8..]).unwrap()).1;
+            let seqb = parse_tag(FixedInt::decode_fixed(&b[b.len() - 8..]).unwrap()).1;
             // reverse comparison!
             seqb.cmp(&seqa)
         }

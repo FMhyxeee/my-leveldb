@@ -104,7 +104,7 @@ impl WriteBatch {
 
     /// Returns how many operations are in a batch
     pub fn count(&self) -> u32 {
-        u32::decode_fixed(&self.entries[COUNT_OFFSET..COUNT_OFFSET + 4])
+        u32::decode_fixed(&self.entries[COUNT_OFFSET..COUNT_OFFSET + 4]).unwrap()
     }
 
     pub fn set_sequence(&mut self, s: SequenceNumber) {
@@ -112,7 +112,7 @@ impl WriteBatch {
     }
 
     pub fn sequence(&self) -> SequenceNumber {
-        u64::decode_fixed(&self.entries[SEQNUM_OFFSET..SEQNUM_OFFSET + 8])
+        u64::decode_fixed(&self.entries[SEQNUM_OFFSET..SEQNUM_OFFSET + 8]).unwrap()
     }
 
     pub fn iter(&self) -> WriteBatchIter {

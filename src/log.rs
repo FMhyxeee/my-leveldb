@@ -161,8 +161,8 @@ impl<R: Read> LogReader<R> {
 
             self.blk_off += bytes_read;
 
-            checksum = u32::decode_fixed(&self.head_scratch[0..4]);
-            length = u16::decode_fixed(&self.head_scratch[4..6]);
+            checksum = u32::decode_fixed(&self.head_scratch[0..4]).unwrap();
+            length = u16::decode_fixed(&self.head_scratch[4..6]).unwrap();
             typ = self.head_scratch[6];
 
             dst.resize(dst_offset + length as usize, 0);
@@ -212,7 +212,7 @@ pub fn unmask_crc(c: u32) -> u32 {
 mod tests {
     use std::io::Cursor;
 
-    use crc::crc32;
+    use crc::crc32::checksum_castagnoli;
 
     use crate::log::{mask_crc, unmask_crc, LogReader, HEADER_SIZE};
 
@@ -220,15 +220,15 @@ mod tests {
 
     #[test]
     fn test_crc_mask_crc() {
-        let crc = crc32::checksum_castagnoli("abcde".as_bytes());
+        let crc = checksum_castagnoli("abcde".as_bytes());
         assert_eq!(crc, unmask_crc(mask_crc(crc)));
         assert!(crc != mask_crc(crc));
     }
 
     #[test]
     fn test_crc_sanity() {
-        assert_eq!(0x8a9136aa, crc32::checksum_castagnoli(&[0u8; 32]));
-        assert_eq!(0x62a8ab43, crc32::checksum_castagnoli(&[0xffu8; 32]));
+        assert_eq!(0x8a9136aa, checksum_castagnoli(&[0u8; 32]));
+        assert_eq!(0x62a8ab43, checksum_castagnoli(&[0xffu8; 32]));
     }
 
     #[test]

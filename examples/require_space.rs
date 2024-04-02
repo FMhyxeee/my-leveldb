@@ -23,7 +23,7 @@ fn main() {
 
     let u = (t as u64) | 123 << 8;
 
-    v.resize(len + <u64 as FixedInt>::required_space(), 0);
+    v.resize(len + 8, 0);
     assert_eq!(v.len(), 10);
     u.encode_fixed(&mut v[2..]);
     assert_eq!(v, [129, 1, 1, 123, 0, 0, 0, 0, 0, 0]);
@@ -36,7 +36,7 @@ fn main() {
 
     index += i;
 
-    let val2: u64 = FixedInt::decode_fixed(&v[index..]);
+    let val2: u64 = FixedInt::decode_fixed(&v[index..]).unwrap();
 
     println!("{:?}", 123 << 8);
     println!("{:?}", ValueType::TypeValue as u64);

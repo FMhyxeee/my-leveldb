@@ -1,4 +1,4 @@
-use crc::{crc32, Hasher32};
+use crc::crc32::{self, Hasher32};
 use integer_encoding::FixedInt;
 use snap::raw::Decoder;
 
@@ -65,7 +65,11 @@ pub fn read_table_block(
     )
     .unwrap();
 
-    if !verify_table_block(&buf, compress[0], unmask_crc(u32::decode_fixed(&cksum))) {
+    if !verify_table_block(
+        &buf,
+        compress[0],
+        unmask_crc(u32::decode_fixed(&cksum).unwrap()),
+    ) {
         return err(
             StatusCode::Corruption,
             &format!(

@@ -1,4 +1,3 @@
-use integer_encoding::FixedInt;
 use std::rc::Rc;
 
 use crate::{
@@ -132,7 +131,7 @@ impl LdbIterator for MemtableIterator {
             // zero-allocation truncation.
             shift_left(key, keyoff);
             // Truncate key to key+tag.
-            key.truncate(keylen + u64::required_space());
+            key.truncate(keylen + 8);
             true
         } else {
             panic!("should not happen");
