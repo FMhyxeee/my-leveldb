@@ -60,7 +60,7 @@ impl SkipMap {
                     key: Vec::new(),
                     value: Vec::new(),
                 }),
-                rand: StdRng::from_entropy(),
+                rand: StdRng::seed_from_u64(0xdeadbeef),
                 len: 0,
                 approx_mem: size_of::<Self>() + MAX_HEIGHT * size_of::<Option<*mut Node>>(),
                 cmp,
