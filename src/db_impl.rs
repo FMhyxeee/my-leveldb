@@ -293,7 +293,6 @@ impl DB {
         let filenames = self.opt.env.children(Path::new(&self.name))?;
         for name in filenames {
             if let Ok((num, typ)) = parse_file_name(&name) {
-                log!(self.opt.log, "{} {:?}", num, typ);
                 match typ {
                     FileType::Log => {
                         if num >= self.vset.borrow().log_num {
