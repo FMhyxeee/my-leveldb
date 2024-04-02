@@ -149,7 +149,10 @@ impl Env for PosixDiskEnv {
             };
             Ok(lock)
         } else {
-            Err(Status::new(StatusCode::AlreadyExists, "lock is held"))
+            Err(Status::new(
+                StatusCode::Errno(errno::errno()),
+                "Lock is held (fcntl)",
+            ))
         }
     }
     fn unlock(&self, l: FileLock) -> Result<()> {
