@@ -1,6 +1,8 @@
+use std::io::Read;
+
 use crc::crc32::{self, Hasher32};
 use integer_encoding::FixedInt;
-use snap::raw::Decoder;
+use snap::read::FrameDecoder;
 
 use crate::{
     block::Block,
@@ -83,7 +85,8 @@ pub fn read_table_block(
         match ctype {
             CompressionType::CompressionNone => Ok(Block::new(opt, buf)),
             CompressionType::CompressionSnappy => {
-                let decoded = Decoder::new().decompress_vec(&buf)?;
+                let mut decoded = vec![];
+                FrameDecoder::new(buf.as_slice()).read_to_end(&mut decoded)?;
                 Ok(Block::new(opt, decoded))
             }
         }

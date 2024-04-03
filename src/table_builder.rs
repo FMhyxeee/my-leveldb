@@ -1,6 +1,6 @@
 use crc::{crc32, Hasher32};
 use integer_encoding::FixedIntWriter;
-use snap::raw::Encoder;
+use snap::write::FrameEncoder;
 use std::{cmp::Ordering, io::Write, rc::Rc};
 
 use crate::{
@@ -195,8 +195,12 @@ impl<Dst: Write> TableBuilder<Dst> {
     fn write_block(&mut self, block: BlockContents, ctype: CompressionType) -> Result<BlockHandle> {
         let mut data = block;
         if ctype == CompressionType::CompressionSnappy {
-            let mut encoder = Encoder::new();
-            data = encoder.compress_vec(&data)?;
+            let mut encoded = vec![];
+            {
+                let mut encoder = FrameEncoder::new(&mut encoded);
+                encoder.write_all(&data)?;
+            }
+            data = encoded;
         }
 
         let mut digest = crc32::Digest::new(crc32::CASTAGNOLI);
@@ -319,7 +323,7 @@ mod tests {
         assert!(b.filter_block.is_some());
 
         let actual = b.finish().unwrap();
-        assert_eq!(223, actual);
+        assert_eq!(275, actual);
     }
 
     #[test]
