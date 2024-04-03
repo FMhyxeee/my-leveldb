@@ -8,7 +8,7 @@ use crate::{
     cache::{CacheID, CacheKey},
     cmp::InternalKeyCmp,
     env::RandomAccess,
-    error::Result,
+    error::{self, err, Result},
     filter::InternalFilterPolicy,
     filter_block::FilterBlockReader,
     key_types::InternalKey,
@@ -22,7 +22,13 @@ use crate::{
 fn read_footer(f: &dyn RandomAccess, size: usize) -> Result<Footer> {
     let mut buf = vec![0; table_builder::FULL_FOOTER_LENGTH];
     f.read_at(size - table_builder::FULL_FOOTER_LENGTH, &mut buf)?;
-    Ok(Footer::decode(&buf))
+    match Footer::decode(&buf) {
+        Some(ok) => Ok(ok),
+        None => err(
+            error::StatusCode::Corruption,
+            &format!("Couldn't decode damaged footer {:?}", &buf),
+        ),
+    }
 }
 
 #[derive(Clone)]
@@ -80,7 +86,7 @@ impl Table {
         metaindexiter.seek(&filter_name);
 
         if let Some((_key, val)) = current_key_val(&metaindexiter) {
-            let filter_block_location = BlockHandle::decode(&val).0;
+            let filter_block_location = BlockHandle::decode(&val).unwrap().0;
             if filter_block_location.size() > 0 {
                 return Ok(Some(table_block::read_filter_block(
                     file,
@@ -141,7 +147,7 @@ impl Table {
         iter.seek(key);
 
         if let Some((_, val)) = current_key_val(&iter) {
-            let location = BlockHandle::decode(&val).0;
+            let location = BlockHandle::decode(&val).unwrap().0;
             return location.offset();
         }
 
@@ -176,7 +182,7 @@ impl Table {
         let handle;
         if let Some((last_in_block, h)) = current_key_val(&index_iter) {
             if self.opt.cmp.cmp(key, &last_in_block) == Ordering::Less {
-                handle = BlockHandle::decode(&h).0;
+                handle = BlockHandle::decode(&h).unwrap().0;
             } else {
                 return Ok(None);
             }
@@ -238,7 +244,7 @@ impl TableIterator {
 
     // Load the block at `handle` into `self.current_block`
     fn load_block(&mut self, handle: &[u8]) -> Result<()> {
-        let (new_block_handle, _) = BlockHandle::decode(handle);
+        let (new_block_handle, _) = BlockHandle::decode(handle).unwrap();
         let block = self.table.read_block(&new_block_handle)?;
         self.current_block = Some(block.iter());
         self.current_block_off = new_block_handle.offset();
