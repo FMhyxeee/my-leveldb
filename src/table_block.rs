@@ -8,12 +8,12 @@ use crate::{
     block::Block,
     blockhandle::BlockHandle,
     env::RandomAccess,
-    error::StatusCode,
-    error::{err, Result},
+    error::{err, Result, StatusCode},
     filter,
     filter_block::FilterBlockReader,
     log::unmask_crc,
-    options, table_builder, CompressionType, Options,
+    options::{self, CompressionType},
+    table_builder, Options,
 };
 
 /// Reads the data for the specified block handle from a file.

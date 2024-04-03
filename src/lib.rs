@@ -29,7 +29,6 @@ mod blockhandle;
 mod cache;
 mod cmp;
 mod disk_env;
-mod env;
 mod env_common;
 mod error;
 mod filter;
@@ -58,15 +57,20 @@ mod write_batch;
 mod db_impl;
 mod db_iter;
 
+pub mod compressor;
+pub mod env;
+
 pub use cmp::{Cmp, DefaultCmp};
+pub use compressor::{Compressor, CompressorId};
 pub use db_impl::DB;
 pub use db_iter::DBIterator;
+
 pub use disk_env::PosixDiskEnv;
 pub use env::Env;
 pub use error::{Result, Status};
 pub use filter::{BloomPolicy, FilterPolicy};
 pub use mem_env::MemEnv;
-pub use options::{in_memory, CompressionType, Options};
+pub use options::{in_memory, CompressorList, Options};
 pub use skipmap::SkipMap;
 pub use types::LdbIterator;
 pub use write_batch::WriteBatch;

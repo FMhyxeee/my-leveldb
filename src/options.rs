@@ -4,12 +4,15 @@ use crate::{
     block::Block,
     cache::Cache,
     cmp::{Cmp, DefaultCmp},
+    compressor::{self, Compressor, CompressorId},
     disk_env::PosixDiskEnv,
     env::Env,
+    error::StatusCode,
     filter::{self, BoxedFilterPolicy},
     infolog::{self, Logger},
     mem_env::MemEnv,
     types::{share, Shared},
+    Result, Status,
 };
 
 const KB: usize = 1 << 10;
@@ -52,11 +55,23 @@ pub struct Options {
     pub block_cache: Shared<Cache<Block>>,
     pub block_size: usize,
     pub block_restart_interval: usize,
-    pub compression_type: CompressionType,
+    /// Compressor id in compressor list
+    ///
+    /// Note: you have to open a database with the same compression type as it was written to, in otder
+    /// to not lose data! (this is a bug and will be fixed)
+    pub compressor: u8,
+
+    pub compressor_list: Rc<CompressorList>,
     pub reuse_logs: bool,
     pub reuse_manifest: bool,
     pub filter_policy: BoxedFilterPolicy,
 }
+
+#[cfg(feature = "fs")]
+type DefaultEnv = crate::disk_env::PosixDiskEnv;
+
+#[cfg(not(feature = "fs"))]
+type DefaultEnv = crate::mem_env::MemEnv;
 
 impl Default for Options {
     fn default() -> Self {
@@ -76,9 +91,63 @@ impl Default for Options {
             block_restart_interval: 16,
             reuse_logs: true,
             reuse_manifest: true,
-            compression_type: CompressionType::CompressionNone,
+            compressor: 0,
+            compressor_list: Rc::new(CompressorList::default()),
             filter_policy: Rc::new(Box::new(filter::BloomPolicy::new(DEFAULT_BITS_PER_KEY))),
         }
+    }
+}
+
+/// Customize compressor method for leveldb
+///
+/// `Default` value is like the code below
+/// ```
+/// # use my_leveldb::{compressor, CompressorList};
+/// let mut list = CompressorList::new();
+/// list.set(compressor::NoneCompressor);
+/// list.set(compressor::SnappyCompressor);
+/// ```
+pub struct CompressorList([Option<Box<dyn Compressor>>; 256]);
+
+impl CompressorList {
+    /// Create a **Empty** compressor list
+    pub fn new() -> Self {
+        const INIT: Option<Box<dyn Compressor>> = None;
+        Self([INIT; 256])
+    }
+
+    /// Set compressor with the id in `CompressorId` trait
+    pub fn set<T>(&mut self, compressor: T)
+    where
+        T: Compressor + CompressorId + 'static,
+    {
+        self.set_with_id(T::ID, compressor)
+    }
+
+    /// Set compressor with id
+    pub fn set_with_id(&mut self, id: u8, compressor: impl Compressor + 'static) {
+        self.0[id as usize] = Some(Box::new(compressor));
+    }
+
+    pub fn is_set(&self, id: u8) -> bool {
+        self.0[id as usize].is_some()
+    }
+
+    #[allow(clippy::borrowed_box)]
+    pub fn get(&self, id: u8) -> Result<&Box<dyn Compressor + 'static>> {
+        self.0[id as usize].as_ref().ok_or_else(|| Status {
+            code: StatusCode::NotSupported,
+            err: format!("invalid compression id `{}`", id),
+        })
+    }
+}
+
+impl Default for CompressorList {
+    fn default() -> Self {
+        let mut list = Self::new();
+        list.set(compressor::NoneCompressor);
+        list.set(compressor::SnappyCompressor);
+        list
     }
 }
 

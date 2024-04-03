@@ -360,11 +360,11 @@ impl LdbIterator for TableIterator {
 mod tests {
 
     use crate::{
+        compressor::{self, CompressorId},
         filter::BloomPolicy,
         key_types::LookupKey,
         table_builder::TableBuilder,
         test_util::{test_iterator_properties, LdbIteratorIter},
-        CompressionType,
     };
 
     use super::*;
@@ -391,7 +391,7 @@ mod tests {
         let opt = Options {
             block_restart_interval: 2,
             block_size: 32,
-            compression_type: CompressionType::CompressionSnappy,
+            compressor: compressor::SnappyCompressor::ID,
             ..Default::default()
         };
 

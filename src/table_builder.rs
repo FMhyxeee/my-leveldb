@@ -1,6 +1,5 @@
 use crc::{crc32, Hasher32};
 use integer_encoding::FixedIntWriter;
-use snap::write::FrameEncoder;
 use std::{cmp::Ordering, io::Write, rc::Rc};
 
 use crate::{
@@ -8,13 +7,13 @@ use crate::{
     block_builder::BlockBuilder,
     blockhandle::BlockHandle,
     cmp::InternalKeyCmp,
-    error,
-    error::Result,
+    compressor::{self, Compressor, CompressorId},
+    error::{self, Result},
     filter::{InternalFilterPolicy, NoFilterPolicy},
     filter_block::FilterBlockBuilder,
     key_types::InternalKey,
     log::mask_crc,
-    options::{CompressionType, Options},
+    options::Options,
 };
 
 pub const FOOTER_LENGTH: usize = 40;
@@ -165,6 +164,9 @@ impl<Dst: Write> TableBuilder<Dst> {
         Ok(())
     }
 
+    /// Writes an index entry for the current data_block where `next_key` is the first key of the
+    /// next block.
+    /// Calls write_block() for writing the block to disk.
     fn write_data_block(&mut self, next_key: InternalKey) -> error::Result<()> {
         assert!(self.data_block.is_some());
 
@@ -173,9 +175,10 @@ impl<Dst: Write> TableBuilder<Dst> {
         self.prev_block_last_key = Vec::from(block.last_key());
         let contents = block.finish();
 
-        let ctype = self.opt.compression_type;
-        let handle = self.write_block(contents, ctype)?;
+        let compressor_list = self.opt.compressor_list.clone();
+        let compressor = compressor_list.get(self.opt.compressor)?;
 
+        let handle = self.write_block(contents, (self.opt.compressor, compressor))?;
         let mut handle_enc = [0u8; 16];
         let enc_len = handle.encode_to(&mut handle_enc);
 
@@ -192,25 +195,22 @@ impl<Dst: Write> TableBuilder<Dst> {
         Ok(())
     }
 
-    fn write_block(&mut self, block: BlockContents, ctype: CompressionType) -> Result<BlockHandle> {
-        let mut data = block;
-        if ctype == CompressionType::CompressionSnappy {
-            let mut encoded = vec![];
-            {
-                let mut encoder = FrameEncoder::new(&mut encoded);
-                encoder.write_all(&data)?;
-            }
-            data = encoded;
-        }
+    #[allow(clippy::borrowed_box)]
+    fn write_block(
+        &mut self,
+        block: BlockContents,
+        compressor_id_pair: (u8, &Box<dyn Compressor>),
+    ) -> Result<BlockHandle> {
+        let (ctype, compressor) = compressor_id_pair;
+        let data = compressor.encode(block)?;
 
         let mut digest = crc32::Digest::new(crc32::CASTAGNOLI);
 
         digest.write(&data);
-        digest.write(&[ctype as u8; TABLE_BLOCK_COMPRESS_LEN]);
+        digest.write(&[ctype; TABLE_BLOCK_COMPRESS_LEN]);
 
         self.dst.write_all(&data)?;
-        self.dst
-            .write_all(&[ctype as u8; TABLE_BLOCK_COMPRESS_LEN])?;
+        self.dst.write_all(&[ctype; TABLE_BLOCK_COMPRESS_LEN])?;
         self.dst.write_fixedint(mask_crc(digest.sum32()))?;
 
         let handle = BlockHandle::new(self.offset, data.len());
@@ -219,9 +219,13 @@ impl<Dst: Write> TableBuilder<Dst> {
         Ok(handle)
     }
 
-    pub fn finish(mut self) -> error::Result<usize> {
+    pub fn finish(mut self) -> Result<usize> {
         assert!(self.data_block.is_some());
-        let ctype = self.opt.compression_type;
+        let compressor_list = self.opt.compressor_list.clone();
+        let compressor_id_pair = (
+            self.opt.compressor,
+            compressor_list.get(self.opt.compressor)?,
+        );
 
         // If there's a pending data block, write it
         if self.data_block.as_ref().unwrap().entries() > 0 {
@@ -242,7 +246,13 @@ impl<Dst: Write> TableBuilder<Dst> {
             let fblock = self.filter_block.take().unwrap();
             let filter_key = format!("filter.{}", fblock.filter_name());
             let fblock_data = fblock.finish();
-            let fblock_handle = self.write_block(fblock_data, CompressionType::CompressionNone)?;
+            let fblock_handle = self.write_block(
+                fblock_data,
+                (
+                    compressor::NoneCompressor::ID,
+                    &(Box::new(compressor::NoneCompressor) as Box<dyn Compressor>),
+                ),
+            )?;
 
             let mut handle_enc = [0u8; 16];
             let enc_len = fblock_handle.encode_to(&mut handle_enc);
@@ -252,11 +262,11 @@ impl<Dst: Write> TableBuilder<Dst> {
 
         // write metaindex block
         let meta_ix = meta_ix_block.finish();
-        let meta_ix_handle = self.write_block(meta_ix, ctype)?;
+        let meta_ix_handle = self.write_block(meta_ix, compressor_id_pair)?;
 
         // write index block
         let index_cont = self.index_block.take().unwrap().finish();
-        let ix_handle = self.write_block(index_cont, ctype)?;
+        let ix_handle = self.write_block(index_cont, compressor_id_pair)?;
 
         // write footer.
         let footer = Footer::new(meta_ix_handle, ix_handle);
@@ -274,7 +284,8 @@ mod tests {
 
     use crate::{
         blockhandle::BlockHandle,
-        options::{self, CompressionType},
+        compressor::{self, CompressorId},
+        options,
         table_builder::{Footer, TableBuilder},
     };
 
@@ -297,7 +308,7 @@ mod tests {
 
         let mut opt = options::for_test();
         opt.block_restart_interval = 3;
-        opt.compression_type = CompressionType::CompressionSnappy;
+        opt.compressor = compressor::SnappyCompressor::ID;
         let mut b = TableBuilder::new_raw(opt, &mut d);
 
         let data = [
@@ -323,7 +334,7 @@ mod tests {
         assert!(b.filter_block.is_some());
 
         let actual = b.finish().unwrap();
-        assert_eq!(275, actual);
+        assert_eq!(223, actual);
     }
 
     #[test]
