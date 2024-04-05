@@ -1,8 +1,5 @@
-use std::io::Read;
-
 use crc::crc32::{self, Hasher32};
 use integer_encoding::FixedInt;
-use snap::read::FrameDecoder;
 
 use crate::{
     block::Block,
@@ -12,7 +9,6 @@ use crate::{
     filter,
     filter_block::FilterBlockReader,
     log::unmask_crc,
-    options::{self, CompressionType},
     table_builder, Options,
 };
 
@@ -49,23 +45,21 @@ pub fn read_table_block(
     // The block is denoted by offset and length in BlockHandle. A block in an encoded
     // table is followed by 1B compression type and 4B checksum.
     // The checksum refers to the compressed contents.
-    let buf = read_bytes(f, location).unwrap();
+    let buf = read_bytes(f, location)?;
     let compress = read_bytes(
         f,
         &BlockHandle::new(
             location.offset() + location.size(),
             table_builder::TABLE_BLOCK_COMPRESS_LEN,
         ),
-    )
-    .unwrap();
+    )?;
     let cksum = read_bytes(
         f,
         &BlockHandle::new(
             location.offset() + location.size() + table_builder::TABLE_BLOCK_COMPRESS_LEN,
             table_builder::TABLE_BLOCK_CKSUM_LEN,
         ),
-    )
-    .unwrap();
+    )?;
 
     if !verify_table_block(
         &buf,
@@ -80,19 +74,12 @@ pub fn read_table_block(
             ),
         );
     }
+    let compressor_list = opt.compressor_list.clone();
 
-    if let Some(ctype) = options::int_to_compressiontype(compress[0] as u32) {
-        match ctype {
-            CompressionType::CompressionNone => Ok(Block::new(opt, buf)),
-            CompressionType::CompressionSnappy => {
-                let mut decoded = vec![];
-                FrameDecoder::new(buf.as_slice()).read_to_end(&mut decoded)?;
-                Ok(Block::new(opt, decoded))
-            }
-        }
-    } else {
-        err(StatusCode::InvalidData, "invalid compression type")
-    }
+    Ok(Block::new(
+        opt,
+        compressor_list.get(compress[0])?.decode(buf)?,
+    ))
 }
 
 /// Verify checksum of block

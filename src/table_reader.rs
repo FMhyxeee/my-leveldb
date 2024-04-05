@@ -47,18 +47,24 @@ pub struct Table {
 impl Table {
     /// Creates a new table reader operating on unformatted keys(i.e., UserKeys).
     pub fn new_raw(opt: Options, file: Rc<Box<dyn RandomAccess>>, size: usize) -> Result<Table> {
-        let footer = read_footer(file.as_ref().as_ref(), size).unwrap();
+        let footer = read_footer(file.as_ref().as_ref(), size)?;
+        println!("footer is {:?}", footer);
 
         let indexblock =
             table_block::read_table_block(opt.clone(), file.as_ref().as_ref(), &footer.index)?;
+
+        println!("end indexblock");
         let metaindexblock =
             table_block::read_table_block(opt.clone(), file.as_ref().as_ref(), &footer.meta_index)?;
 
+        println!("end indexblock and metaindexblock");
         // Open filter block for reading
         let filter_block_reader =
             Table::read_filter_block(&metaindexblock, file.as_ref().as_ref(), &opt)?;
 
         let cache_id = opt.block_cache.borrow_mut().new_cache_id();
+
+        println!("new_raw end");
 
         Ok(Table {
             // clone file here so that we can use a immutable reference rfile above.
@@ -363,6 +369,7 @@ mod tests {
         compressor::{self, CompressorId},
         filter::BloomPolicy,
         key_types::LookupKey,
+        options,
         table_builder::TableBuilder,
         test_util::{test_iterator_properties, LdbIteratorIter},
     };
@@ -388,22 +395,21 @@ mod tests {
     // reason, a call f(v, v.len()) doesn't work for borrowing reasons.
     fn build_table(data: Vec<(&'static str, &'static str)>) -> (Vec<u8>, usize) {
         let mut d = Vec::with_capacity(512);
-        let opt = Options {
-            block_restart_interval: 2,
-            block_size: 32,
-            compressor: compressor::SnappyCompressor::ID,
-            ..Default::default()
-        };
+        let mut opt = options::for_test();
+        opt.block_restart_interval = 2;
+        opt.block_size = 32;
+        opt.compressor = compressor::SnappyCompressor::ID;
 
         {
             // Uses the standard comparator in opt.
-            let mut b = TableBuilder::new(opt, &mut d);
+            let mut b = TableBuilder::new_raw(opt, &mut d);
             for &(k, v) in data.iter() {
                 b.add(k.as_bytes(), v.as_bytes()).unwrap();
             }
             b.finish().unwrap();
         }
         let size = d.len();
+        println!("vec is {d:?}");
         (d, size)
     }
 
@@ -448,24 +454,21 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_table_approximate_offset() {
         let (src, size) = build_table(build_data());
-        let opt = Options {
-            block_size: 32,
-            ..Default::default()
-        };
+        let mut opt = options::for_test();
+        opt.block_size = 32;
         let table = Table::new_raw(opt.clone(), wrap_buffer(src), size).unwrap();
         let mut iter = table.iter();
 
-        let expected_offsets = [0, 0, 0, 60, 60, 60, 122];
+        let expected_offsets = [0, 0, 0, 44, 44, 44, 89];
 
         for (i, (k, _)) in LdbIteratorIter::wrap(&mut iter).enumerate() {
             assert_eq!(expected_offsets[i], table.approx_offset_of(&k));
         }
 
-        // Key-past-last returns offset of metaindex block.
-        assert_eq!(186, table.approx_offset_of("{aa".as_bytes()));
+        // // Key-past-last returns offset of metaindex block.
+        assert_eq!(137, table.approx_offset_of("{aa".as_bytes()));
     }
 
     #[test]

@@ -144,7 +144,6 @@ impl<Dst: Write> TableBuilder<Dst> {
     /// Add a key to the table. The key as to be lexically greater or equal to the last one added.
     pub fn add(&mut self, key: InternalKey, val: &[u8]) -> error::Result<()> {
         assert!(self.data_block.is_some());
-
         if !self.prev_block_last_key.is_empty() {
             assert!(self.opt.cmp.cmp(&self.prev_block_last_key, key) == Ordering::Less);
         }
