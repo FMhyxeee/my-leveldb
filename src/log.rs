@@ -214,7 +214,10 @@ mod tests {
 
     use crc::crc32::checksum_castagnoli;
 
-    use crate::log::{mask_crc, unmask_crc, LogReader, HEADER_SIZE};
+    use crate::{
+        error::{err, StatusCode},
+        log::{mask_crc, unmask_crc, LogReader, HEADER_SIZE},
+    };
 
     use super::LogWriter;
 
@@ -282,7 +285,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_reader() {
         let data = [
             "abcdefghi".as_bytes().to_vec(),    // fits one block of 17
@@ -305,6 +307,12 @@ mod tests {
         lr.blocksize = super::HEADER_SIZE + 10;
         let mut dst = Vec::with_capacity(128);
 
+        // First record is corrupted.
+        assert_eq!(
+            err(StatusCode::Corruption, "Invalid Checksum"),
+            lr.read(&mut dst)
+        );
+
         let mut i = 1;
 
         loop {
@@ -320,6 +328,6 @@ mod tests {
             i += 1;
         }
 
-        // assert_eq!(i, data.len());
+        assert_eq!(i, data.len());
     }
 }
