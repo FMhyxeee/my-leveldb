@@ -409,7 +409,6 @@ mod tests {
             b.finish().unwrap();
         }
         let size = d.len();
-        println!("vec is {d:?}");
         (d, size)
     }
 
@@ -472,7 +471,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_table_block_cache_use() {
         let (src, size) = build_table(build_data());
         let opt = Options {
@@ -496,7 +494,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_table_iterator_fwd_bwd() {
         let (src, size) = build_table(build_data());
         let data = build_data();
@@ -549,7 +546,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_table_iterator_filter() {
         let (src, size) = build_table(build_data());
 
@@ -566,7 +562,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_table_iterator_state_behavior() {
         let (src, size) = build_table(build_data());
 
@@ -597,7 +592,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_table_iterator_behavior_standard() {
         let mut data = build_data();
         data.truncate(4);
@@ -607,7 +601,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_table_iterator_values() {
         let (src, size) = build_table(build_data());
         let data = build_data();
@@ -645,7 +638,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_table_iterator_seek() {
         let (src, size) = build_table(build_data());
 
@@ -673,7 +665,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_table_get() {
         let (src, size) = build_table(build_data());
 
@@ -706,7 +697,6 @@ mod tests {
     // All the other tests use raw keys that don't have any internal structure; this is fine in
     // general, but here we want to see that the other infrastructure works too.
     #[test]
-    #[ignore]
     fn test_table_internal_keys() {
         let (src, size) = build_internal_table();
 
@@ -737,7 +727,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_table_reader_checksum() {
         let (mut src, size) = build_table(build_data());
 
