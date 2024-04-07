@@ -48,23 +48,17 @@ impl Table {
     /// Creates a new table reader operating on unformatted keys(i.e., UserKeys).
     pub fn new_raw(opt: Options, file: Rc<Box<dyn RandomAccess>>, size: usize) -> Result<Table> {
         let footer = read_footer(file.as_ref().as_ref(), size)?;
-        println!("footer is {:?}", footer);
 
         let indexblock =
             table_block::read_table_block(opt.clone(), file.as_ref().as_ref(), &footer.index)?;
-
-        println!("end indexblock");
         let metaindexblock =
             table_block::read_table_block(opt.clone(), file.as_ref().as_ref(), &footer.meta_index)?;
 
-        println!("end indexblock and metaindexblock");
         // Open filter block for reading
         let filter_block_reader =
             Table::read_filter_block(&metaindexblock, file.as_ref().as_ref(), &opt)?;
 
         let cache_id = opt.block_cache.borrow_mut().new_cache_id();
-
-        println!("new_raw end");
 
         Ok(Table {
             // clone file here so that we can use a immutable reference rfile above.
