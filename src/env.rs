@@ -4,13 +4,12 @@
 use crate::error::Result;
 
 use std::fs::File;
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
-
+use std::io::prelude::*;
 #[cfg(unix)]
 use std::os::unix::fs::FileExt;
 #[cfg(windows)]
 use std::os::windows::fs::FileExt;
+use std::path::{Path, PathBuf};
 
 pub trait RandomAccess {
     fn read_at(&self, off: usize, dst: &mut [u8]) -> Result<usize>;
@@ -23,13 +22,13 @@ impl RandomAccess for File {
     }
 }
 
+#[cfg(windows)]
 impl RandomAccess for File {
     fn read_at(&self, off: usize, dst: &mut [u8]) -> Result<usize> {
         Ok((self as &dyn FileExt).seek_read(dst, off as u64)?)
     }
 }
 
-#[derive(Debug)]
 pub struct FileLock {
     pub id: String,
 }

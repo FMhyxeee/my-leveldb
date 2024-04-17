@@ -45,7 +45,7 @@ pub fn int_to_compressiontype(i: u32) -> Option<CompressionType> {
 pub struct Options {
     pub cmp: Rc<Box<dyn Cmp>>,
     pub env: Rc<Box<dyn Env>>,
-    pub log: Shared<Logger>,
+    pub log: Option<Shared<Logger>>,
     pub create_if_missing: bool,
     pub error_if_exists: bool,
     pub paranoid_checks: bool,
@@ -78,7 +78,7 @@ impl Default for Options {
         Self {
             cmp: Rc::new(Box::new(DefaultCmp)),
             env: Rc::new(Box::new(PosixDiskEnv::new())),
-            log: share(Logger(Box::new(io::sink()))),
+            log: Some(share(Logger(Box::new(io::sink())))),
             create_if_missing: true,
             error_if_exists: false,
             paranoid_checks: false,
@@ -163,7 +163,7 @@ pub fn in_memory() -> Options {
 pub fn for_test() -> Options {
     Options {
         env: Rc::new(Box::new(MemEnv::new())),
-        log: share(infolog::stderr()),
+        log: Some(share(infolog::stderr())),
 
         ..Default::default()
     }
