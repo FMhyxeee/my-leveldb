@@ -11,7 +11,7 @@ use std::{
 use crate::{
     env::{path_to_str, path_to_string, Env, FileLock, Logger, RandomAccess},
     env_common::{micros, sleep_for},
-    error::{err, Result, Status, StatusCode},
+    error::{err, Result, StatusCode},
 };
 
 /// BufferBackedFile is a simple type implementing RandomAccess on a Vec<u8>.
@@ -146,7 +146,10 @@ impl MemFS {
             Entry::Occupied(o) => Ok(o.get().f.clone()),
             Entry::Vacant(v) => {
                 if !create {
-                    return err(StatusCode::NotFound, "file not found");
+                    return err(
+                        StatusCode::NotFound,
+                        &format!("open: file not found: {}", path_to_str(p)),
+                    );
                 }
                 let f = MemFile::new();
                 v.insert(MemFSEntry {
@@ -172,8 +175,9 @@ impl MemFS {
     fn children_of(&self, p: &Path) -> Result<Vec<PathBuf>> {
         let fs = self.store.lock()?;
         let mut prefix = path_to_string(p);
-        if !prefix.ends_with('/') {
-            prefix.push('/');
+        let main_separator_str = std::path::MAIN_SEPARATOR.to_string();
+        if !prefix.ends_with(&main_separator_str) {
+            prefix.push(std::path::MAIN_SEPARATOR);
         }
         let mut children = Vec::new();
         for k in fs.keys() {
@@ -200,7 +204,10 @@ impl MemFS {
                 o.remove_entry();
                 Ok(())
             }
-            _ => err(StatusCode::NotFound, "not found"),
+            _ => err(
+                StatusCode::NotFound,
+                &format!("delete: file not found: {}", path_to_str(p)),
+            ),
         }
     }
     // mkdir and rmdir are no-ops in MemFS.
@@ -323,7 +330,7 @@ impl Env for MemEnv {
     }
     fn rmdir(&self, p: &Path) -> Result<()> {
         if !self.exists(p)? {
-            Err(Status::new(StatusCode::NotFound, ""))
+            err(StatusCode::NotFound, "")
         } else {
             Ok(())
         }
@@ -336,8 +343,7 @@ impl Env for MemEnv {
         self.0.lock_(p)
     }
     fn unlock(&self, p: FileLock) -> Result<()> {
-        self.0.unlock_(p).expect("memfs unlock failed!");
-        Ok(())
+        self.0.unlock_(p)
     }
 
     fn micros(&self) -> u64 {
@@ -510,6 +516,7 @@ mod tests {
         Path::new(x).to_owned()
     }
 
+    #[cfg(unix)]
     #[test]
     fn test_mem_fs_children() {
         let fs = MemFS::new();
@@ -528,6 +535,31 @@ mod tests {
                 || (children == vec![s2p("2.txt"), s2p("1.txt")])
         );
         let children = fs.children_of(Path::new("/a/")).unwrap();
+        assert!(
+            (children == vec![s2p("1.txt"), s2p("2.txt")])
+                || (children == vec![s2p("2.txt"), s2p("1.txt")])
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_mem_fs_children() {
+        let fs = MemFS::new();
+        let (path1, path2, path3) = (
+            Path::new("\\a\\1.txt"),
+            Path::new("\\a\\2.txt"),
+            Path::new("\\b\\1.txt"),
+        );
+
+        for p in &[&path1, &path2, &path3] {
+            fs.open_w(p, false, false).unwrap();
+        }
+        let children = fs.children_of(Path::new("\\a")).unwrap();
+        assert!(
+            (children == vec![s2p("1.txt"), s2p("2.txt")])
+                || (children == vec![s2p("2.txt"), s2p("1.txt")])
+        );
+        let children = fs.children_of(Path::new("\\a\\")).unwrap();
         assert!(
             (children == vec![s2p("1.txt"), s2p("2.txt")])
                 || (children == vec![s2p("2.txt"), s2p("1.txt")])
@@ -573,6 +605,7 @@ mod tests {
             .is_ok());
     }
 
+    #[cfg(unix)]
     #[test]
     fn test_memenv_all() {
         let me = MemEnv::new();
@@ -598,7 +631,45 @@ mod tests {
         assert!(!me.exists(p1).unwrap());
         assert!(me.rename(nonexist, p1).is_err());
 
-        let _ = me.unlock(me.lock(p3).unwrap());
+        me.unlock(me.lock(p3).unwrap()).unwrap();
+        assert!(me.lock(nonexist).is_ok());
+
+        me.new_logger(p1).unwrap();
+        assert!(me.micros() > 0);
+        me.sleep_for(10);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_memenv_all() {
+        let me = MemEnv::new();
+        let (p1, p2, p3) = (
+            Path::new("\\a\\b"),
+            Path::new("\\a\\c"),
+            Path::new("\\a\\d"),
+        );
+        let nonexist = Path::new("\\x\\y");
+        me.open_writable_file(p2).unwrap();
+        me.open_appendable_file(p3).unwrap();
+        me.open_sequential_file(p2).unwrap();
+        me.open_random_access_file(p3).unwrap();
+
+        assert!(me.exists(p2).unwrap());
+        assert_eq!(me.children(Path::new("\\a\\")).unwrap().len(), 2);
+        assert_eq!(me.size_of(p2).unwrap(), 0);
+
+        me.delete(p2).unwrap();
+        assert!(me.mkdir(p3).is_err());
+        me.mkdir(p1).unwrap();
+        me.rmdir(p3).unwrap();
+        assert!(me.rmdir(nonexist).is_err());
+
+        me.open_writable_file(p1).unwrap();
+        me.rename(p1, p3).unwrap();
+        assert!(!me.exists(p1).unwrap());
+        assert!(me.rename(nonexist, p1).is_err());
+
+        me.unlock(me.lock(p3).unwrap()).unwrap();
         assert!(me.lock(nonexist).is_ok());
 
         me.new_logger(p1).unwrap();
