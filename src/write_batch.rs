@@ -71,6 +71,9 @@ impl WriteBatch {
         self.entries.write_all(k).unwrap();
         let _ = self.entries.write_varint(v.len()).unwrap();
         self.entries.write_all(v).unwrap();
+
+        println!(" put end {:?}", self.entries);
+
         let c = self.count();
         self.set_count(c + 1);
     }
@@ -124,6 +127,7 @@ impl WriteBatch {
 
     pub fn insert_into_memtable(&self, mut seq: SequenceNumber, mt: &mut MemTable) {
         for (k, v) in self.iter() {
+            println!("insert into the k and v is {:?} {:?}", k, v);
             match v {
                 Some(v_) => mt.add(seq, ValueType::TypeValue, k, v_),
                 None => mt.add(seq, ValueType::TypeDeletion, k, b""),

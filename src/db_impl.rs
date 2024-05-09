@@ -370,9 +370,9 @@ impl DB {
     /// Adds a single entry. It's a short, non-synchronous, from of `write()`; in order \
     /// to make sure that the written entry is on disk, call `flush()` afterwards.
     pub fn put(&mut self, k: &[u8], v: &[u8]) -> Result<()> {
-        let mut batch = WriteBatch::new();
-        batch.put(k, v);
-        self.write(batch, false)
+        let mut wb = WriteBatch::new();
+        wb.put(k, v);
+        self.write(wb, false)
     }
 
     /// Deletes a single entry. Like with `put()`, you can call `flush()` to guarantee that

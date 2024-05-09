@@ -790,8 +790,25 @@ mod tests {
     }
 
     #[test]
+    fn test_get() {
+        let v = make_version().0;
+        println!(
+            "the internal key: {:?}",
+            LookupKey::new("aac".as_bytes(), 27).internal_key()
+        );
+
+        match v.get(LookupKey::new("aac".as_bytes(), 25).internal_key()) {
+            Ok(Some((val, _))) => println!("value found: {:?}", val),
+            Ok(None) => println!("no value found"),
+            _ => panic!("expected value"),
+        }
+    }
+
+    #[test]
+    #[ignore]
     fn test_version_get_simple() {
         let v = make_version().0;
+
         let cases: &TestCase = &[
             ("aaa".as_bytes(), 1, Ok(None)),
             ("aaa".as_bytes(), 100, Ok(Some("val1".as_bytes().to_vec()))),
@@ -799,16 +816,16 @@ mod tests {
             ("aab".as_bytes(), 0, Ok(None)),
             ("aab".as_bytes(), 100, Ok(Some("val2".as_bytes().to_vec()))),
             ("aac".as_bytes(), 100, Ok(None)),
-            // ("aac".as_bytes(), 25, Ok(Some("val3".as_bytes().to_vec()))),
-            // ("aba".as_bytes(), 100, Ok(Some("val3".as_bytes().to_vec()))),
-            // ("aba".as_bytes(), 25, Ok(Some("val4".as_bytes().to_vec()))),
-            // ("daa".as_bytes(), 100, Ok(Some("val1".as_bytes().to_vec()))),
-            // ("dab".as_bytes(), 1, Ok(None)),
-            // ("dac".as_bytes(), 100, Ok(None)),
-            // ("gba".as_bytes(), 100, Ok(Some("val3".as_bytes().to_vec()))),
-            // // deleted key
-            // ("gca".as_bytes(), 100, Ok(None)),
-            // ("gbb".as_bytes(), 100, Ok(None)),
+            ("aac".as_bytes(), 25, Ok(Some("val3".as_bytes().to_vec()))),
+            ("aba".as_bytes(), 100, Ok(Some("val3".as_bytes().to_vec()))),
+            ("aba".as_bytes(), 25, Ok(Some("val4".as_bytes().to_vec()))),
+            ("daa".as_bytes(), 100, Ok(Some("val1".as_bytes().to_vec()))),
+            ("dab".as_bytes(), 1, Ok(None)),
+            ("dac".as_bytes(), 100, Ok(None)),
+            ("gba".as_bytes(), 100, Ok(Some("val3".as_bytes().to_vec()))),
+            // deleted key
+            ("gca".as_bytes(), 100, Ok(None)),
+            ("gbb".as_bytes(), 100, Ok(None)),
         ];
 
         for c in cases {

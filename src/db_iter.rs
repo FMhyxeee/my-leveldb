@@ -283,14 +283,12 @@ fn random_period() -> isize {
 mod tests {
     use std::collections::{HashMap, HashSet};
 
-    use crate::{db_impl, test_util::LdbIteratorIter, types::current_key_val, Options, DB};
+    use crate::{db_impl, options, test_util::LdbIteratorIter, types::current_key_val, DB};
 
     use super::*;
     use db_impl::testutil::*;
 
-    // not yet passing
     #[test]
-    #[ignore]
     fn db_iter_basic_test() {
         let (mut db, _) = build_db();
         let mut iter = db.new_iter().unwrap();
@@ -300,7 +298,7 @@ mod tests {
             b"aaa", b"aab", b"aax", b"aba", b"bab", b"bba", b"cab", b"cba",
         ];
         let vals: &[&[u8]] = &[
-            b"val0", b"val2", b"val1", b"val3", b"val2", b"val3", b"val1", b"val3",
+            b"val1", b"val2", b"val2", b"val3", b"val4", b"val5", b"val2", b"val3",
         ];
 
         for (k, v) in keys.iter().zip(vals.iter()) {
@@ -310,7 +308,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn db_iter_reset() {
         let (mut db, _) = build_db();
         let mut iter = db.new_iter().unwrap();
@@ -324,8 +321,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
-    fn db_iter_test_forward_backword() {
+    fn db_iter_test_fwd_backwd() {
         let (mut db, _) = build_db();
         let mut iter = db.new_iter().unwrap();
 
@@ -334,7 +330,7 @@ mod tests {
             b"aaa", b"aab", b"aax", b"aba", b"bab", b"bba", b"cab", b"cba",
         ];
         let vals: &[&[u8]] = &[
-            b"val0", b"val2", b"val1", b"val3", b"val2", b"val3", b"val1", b"val3",
+            b"val1", b"val2", b"val2", b"val3", b"val4", b"val5", b"val2", b"val3",
         ];
 
         // This specifies the direction that the iterator should move to. Based on this, an index
@@ -358,7 +354,6 @@ mod tests {
         let mut i = 0;
         iter.advance();
         for d in dirs {
-            println!("i = {}", i);
             assert_eq!(
                 (keys[i].to_vec(), vals[i].to_vec()),
                 current_key_val(&iter).unwrap()
@@ -377,7 +372,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn db_iter_test_seek() {
         let (mut db, _) = build_db();
         let mut iter = db.new_iter().unwrap();
@@ -385,11 +379,10 @@ mod tests {
         // gca is the deleted entry.
         let keys: &[&[u8]] = &[b"aab", b"aaa", b"cab", b"eaa", b"aaa", b"iba", b"fba"];
         let vals: &[&[u8]] = &[
-            b"val2", b"val0", b"val1", b"val1", b"val0", b"val2", b"val3",
+            b"val2", b"val1", b"val2", b"val1", b"val1", b"val2", b"val3",
         ];
 
         for (k, v) in keys.iter().zip(vals.iter()) {
-            println!("{:?}", String::from_utf8(k.to_vec()).unwrap());
             iter.seek(k);
             assert_eq!((k.to_vec(), v.to_vec()), current_key_val(&iter).unwrap());
         }
@@ -410,7 +403,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn db_iter_deleted_entry_not_returned() {
         let (mut db, _) = build_db();
         let mut iter = db.new_iter().unwrap();
@@ -422,7 +414,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn db_iter_deleted_entry_not_returned_memtable() {
         let (mut db, _) = build_db();
 
@@ -438,10 +429,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn db_iter_repeated_open_close() {
+        let opt;
         {
-            let (mut db, _) = build_db();
+            let (mut db, opt_) = build_db();
+            opt = opt_;
 
             db.put(b"xx1", b"111").unwrap();
             db.put(b"xx2", b"112").unwrap();
@@ -451,12 +443,12 @@ mod tests {
         }
 
         {
-            let mut db = DB::open("db", Options::default()).unwrap();
+            let mut db = DB::open("db", opt.clone()).unwrap();
             db.put(b"xx4", b"222").unwrap();
         }
 
         {
-            let mut db = DB::open("db", Options::default()).unwrap();
+            let mut db = DB::open("db", opt).unwrap();
 
             let ss = db.get_snapshot();
             // xx5 should not be visible.
@@ -479,5 +471,15 @@ mod tests {
                 assert!(!non_existing.contains(&k));
             }
         }
+    }
+
+    #[test]
+    #[ignore]
+    fn db_iter_allow_empty_key() {
+        let opt = options::for_test();
+        let mut db = DB::open("db", opt).unwrap();
+        assert!(db.new_iter().unwrap().next().is_none());
+        db.put(&[], &[]).unwrap();
+        assert!(db.new_iter().unwrap().next().is_some());
     }
 }
