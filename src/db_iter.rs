@@ -474,7 +474,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn db_iter_allow_empty_key() {
         let opt = options::for_test();
         let mut db = DB::open("db", opt).unwrap();

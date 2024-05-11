@@ -195,7 +195,7 @@ pub fn cmp_internal_key(ucmp: &dyn Cmp, a: InternalKey, b: InternalKey) -> Order
 /// truncate_to_userkey performs an in-place conversion from InternalKey to UserKey format.
 pub fn truncate_to_userkey(ikey: &mut Vec<u8>) {
     let len = ikey.len();
-    assert!(len > 8);
+    assert!(len >= 8);
     ikey.truncate(len - 8);
 }
 

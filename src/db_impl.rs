@@ -400,6 +400,7 @@ impl DB {
             log.flush()?;
         }
         self.vset.borrow_mut().last_seq += entries;
+        println!("write end");
         Ok(())
     }
 
