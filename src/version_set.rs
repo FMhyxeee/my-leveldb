@@ -1253,7 +1253,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_version_set_compaction() {
         let (v, opt) = make_version();
         let mut vs = VersionSet::new("db", opt.clone(), share(TableCache::new("db", opt, 100)));
