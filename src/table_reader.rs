@@ -164,7 +164,7 @@ impl Table {
         }
     }
 
-    /// Retrieve next-beggest entry for key from table. This function uses the attached filters, so is better suited if
+    /// Retrieve next-biggest entry for key from table. This function uses the attached filters, so is better suited if
     /// you frequently look for non-existing values (as it will detect the non-existence of an
     /// entry in a block without having to load the block).
     ///

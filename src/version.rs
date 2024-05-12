@@ -70,7 +70,7 @@ impl Version {
         for (level, files) in levels.iter().enumerate() {
             let mut last_read = None;
             let mut last_read_level: usize = 0;
-            if let Some(f) = files.iter().next() {
+            for f in files {
                 if last_read.is_some() && stats.file.is_none() {
                     stats.file = last_read.clone();
                     stats.level = last_read_level;
@@ -642,7 +642,7 @@ pub mod testutil {
 
         // Level 0 (overlapping)
         let f2: &[(&[u8], &[u8], ValueType)] = &[
-            ("aac".as_bytes(), "val1".as_bytes(), ValueType::TypeDeletion),
+            ("aac".as_bytes(), "val1".as_bytes(), ValueType::TypeDeletion), // 26
             ("aax".as_bytes(), "val2".as_bytes(), ValueType::TypeValue),
             ("aba".as_bytes(), "val3".as_bytes(), ValueType::TypeValue),
             ("bab".as_bytes(), "val4".as_bytes(), ValueType::TypeValue),
@@ -652,7 +652,7 @@ pub mod testutil {
         let f1: &[(&[u8], &[u8], ValueType)] = &[
             ("aaa".as_bytes(), "val1".as_bytes(), ValueType::TypeValue),
             ("aab".as_bytes(), "val2".as_bytes(), ValueType::TypeValue),
-            ("aac".as_bytes(), "val3".as_bytes(), ValueType::TypeValue),
+            ("aac".as_bytes(), "val3".as_bytes(), ValueType::TypeValue), // 23
             ("aba".as_bytes(), "val4".as_bytes(), ValueType::TypeValue),
         ];
         let t1 = write_table(&env, f1, 22, 1);
@@ -692,7 +692,7 @@ pub mod testutil {
         let t7 = write_table(&env, f7, 5, 7);
         // Level 3 (2 * 2 entries, for iterator behavior).
         let f8: &[(&[u8], &[u8], ValueType)] = &[
-            ("has".as_bytes(), "val1".as_bytes(), ValueType::TypeValue),
+            ("haa".as_bytes(), "val1".as_bytes(), ValueType::TypeValue),
             ("hba".as_bytes(), "val2".as_bytes(), ValueType::TypeValue),
         ];
         let t8 = write_table(&env, f8, 3, 8);
@@ -792,12 +792,8 @@ mod tests {
     #[test]
     fn test_get() {
         let v = make_version().0;
-        println!(
-            "the internal key: {:?}",
-            LookupKey::new("aac".as_bytes(), 27).internal_key()
-        );
 
-        match v.get(LookupKey::new("aac".as_bytes(), 25).internal_key()) {
+        match v.get(LookupKey::new("aac".as_bytes(), 24).internal_key()) {
             Ok(Some((val, _))) => println!("value found: {:?}", val),
             Ok(None) => println!("no value found"),
             _ => panic!("expected value"),
@@ -805,7 +801,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_version_get_simple() {
         let v = make_version().0;
 
