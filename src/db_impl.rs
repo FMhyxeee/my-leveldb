@@ -400,7 +400,6 @@ impl DB {
             log.flush()?;
         }
         self.vset.borrow_mut().last_seq += entries;
-        println!("write end");
         Ok(())
     }
 
@@ -627,7 +626,7 @@ impl DB {
                 if let Some(c) = c_ {
                     // Update ifrom to the largest key of the last file in this compaction.
                     let ix = c.num_inputs(0) - 1;
-                    ifrom = c.input(0, ix).largest.clone();
+                    ifrom.clone_from(&c.input(0, ix).largest);
                     self.start_compaction(c)?;
                 } else {
                     break;
@@ -650,7 +649,9 @@ impl DB {
             compaction.edit().delete_file(level, num);
             compaction.edit().add_file(level + 1, f);
 
-            if let Err(e) = self.vset.borrow_mut().log_and_apply(compaction.into_edit()) {
+            let r = self.vset.borrow_mut().log_and_apply(compaction.into_edit());
+
+            if let Err(e) = r {
                 log!(self.opt.log, "trivial move failed: {}", e);
                 Err(e)
             } else {
@@ -848,7 +849,7 @@ impl DB {
                 cs.outputs.push(fmd);
             }
             if cs.builder.as_ref().unwrap().entries() == 0 {
-                cs.current_output().smallest = key.clone();
+                cs.current_output().smallest.clone_from(&key)
             }
             cs.builder.as_mut().unwrap().add(&key, &val)?;
             // NOTE: Adjust max file size based on level.
@@ -1613,7 +1614,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_db_impl_compaction_trivial_move() {
         let mut db = DB::open("db", options::for_test()).unwrap();
 
@@ -1629,7 +1629,7 @@ mod tests {
 
         eprintln!(
             "children after: {:?}",
-            db.opt.env.children(Path::new("db")).unwrap()
+            db.opt.env.children(Path::new("db/")).unwrap()
         );
         assert!(db
             .opt
@@ -1722,7 +1722,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_db_impl_compaction_trivial() {
         let (mut v, opt) = make_version();
 
@@ -1815,26 +1814,6 @@ mod tests {
             assert_eq!(Some(b"113".to_vec()), db.get_at(&ss, b"xx3").unwrap());
             assert_eq!(Some(b"222".to_vec()), db.get_at(&ss, b"xx4").unwrap());
             assert_eq!(None, db.get_at(&ss, b"xx2").unwrap());
-        }
-    }
-
-    #[test]
-    #[ignore]
-    fn test_drop_memtable() {
-        let mut db = DB::open("db", options::for_test()).unwrap();
-        let mut cnt = 0;
-        let mut buf: Vec<u8> = Vec::with_capacity(8);
-        let entries_per_batch = 1;
-        let max_num = 100000;
-        while cnt < max_num {
-            let mut write_batch = WriteBatch::new();
-            for i in 0..entries_per_batch {
-                buf.clear();
-                buf.extend_from_slice(format!("{}-{}", cnt, i).as_bytes());
-                write_batch.put(buf.as_slice(), buf.as_slice());
-            }
-            db.write(write_batch, false).unwrap();
-            cnt += entries_per_batch;
         }
     }
 }

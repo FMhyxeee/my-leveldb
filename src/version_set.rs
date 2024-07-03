@@ -317,7 +317,7 @@ impl VersionSet {
         }
 
         c.level = level;
-        c.input_version = self.current.clone();
+        c.input_version.clone_from(&self.current);
 
         if level == 0 {
             let (smallest, largest) = get_range(&self.cmp, c.inputs[0].iter());
@@ -762,7 +762,7 @@ impl Builder {
     /// copied to the supplied compaction_ptrs array
     fn apply(&mut self, edit: &VersionEdit, compaction_ptrs: &mut [Vec<u8>; NUM_LEVELS]) {
         for c in edit.compaction_ptrs.iter() {
-            compaction_ptrs[c.level] = c.key.clone();
+            compaction_ptrs[c.level].clone_from(&c.key);
         }
         for &(level, num) in edit.deleted.iter() {
             self.deleted[level].push(num);

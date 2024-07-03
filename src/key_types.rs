@@ -120,7 +120,6 @@ pub fn build_memtable_key(key: &[u8], value: &[u8], t: ValueType, seq: SequenceN
         writer.write_all(value).expect("write to slice failed");
         assert_eq!(writer.len(), 0);
     }
-    println!("build_memtable_key: {:?}", buf);
     buf
 }
 

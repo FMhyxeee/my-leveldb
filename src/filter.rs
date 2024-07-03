@@ -73,13 +73,9 @@ impl BloomPolicy {
     /// Returns a new BloomPolicy with the given parameters.
 
     fn new_unwrapped(bits_per_key: u32) -> BloomPolicy {
-        let mut k = (bits_per_key as f32 * 0.69) as u32;
+        let k = (bits_per_key as f32 * 0.69) as u32;
 
-        if k < 1 {
-            k = 1;
-        } else if k > 30 {
-            k = 30;
-        }
+        let k = k.clamp(1, 30);
 
         BloomPolicy { bits_per_key, k }
     }

@@ -72,7 +72,7 @@ impl Version {
             let mut last_read_level: usize = 0;
             for f in files {
                 if last_read.is_some() && stats.file.is_none() {
-                    stats.file = last_read.clone();
+                    stats.file.clone_from(&last_read);
                     stats.level = last_read_level;
                 }
                 last_read_level = level;
