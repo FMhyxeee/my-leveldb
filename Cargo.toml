@@ -19,12 +19,12 @@ tokio = { optional = true, features = ["rt", "sync"], version = ">= 1.21" }
 snap = "1.1.1"
 
 [features]
-default = ["fs"]
+default = ["fs", "async"]
 async = ["tokio"]
 fs = ["errno", "fs2"]
 
 [workspace]
-members = ["examples/write-a-lot", "examples/leveldb-tool"]
+members = ["examples/write-a-lot", "examples/leveldb-tool", "examples/kvserver"]
 
 
 [dev-dependencies]

@@ -1,0 +1,8 @@
+[package]
+name = "kvserver"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+canteen = "0.5"
+my-leveldb = { path = "../../" }

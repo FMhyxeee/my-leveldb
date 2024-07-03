@@ -1,4 +1,4 @@
-use my_leveldb::{LdbIterator, Options, DB};
+use my_leveldb::{compressor, CompressorId, LdbIterator, Options, DB};
 
 use std::env::args;
 use std::io::{self, Write};
@@ -8,12 +8,12 @@ fn get(db: &mut DB, k: &str) {
     match db.get(k.as_bytes()) {
         Some(v) => {
             if let Ok(s) = String::from_utf8(v.clone()) {
-                println!("{} => {}", k, s);
+                eprintln!("{} => {}", k, s);
             } else {
-                println!("{} => {:?}", k, v);
+                eprintln!("{} => {:?}", k, v);
             }
         }
-        None => println!("{} => <not found>", k),
+        None => eprintln!("{} => <not found>", k),
     }
 }
 
@@ -49,7 +49,7 @@ fn main() {
 
     if args.len() < 2 {
         panic!(
-            "Usage: {} [get|put|delete|iter|compact] [key|from] [val|to]",
+            "Usage: {} [get|put/set|delete|iter|compact] [key|from] [val|to]",
             args[0]
         );
     }
@@ -57,6 +57,7 @@ fn main() {
     let mut opt = Options::default();
     opt.reuse_logs = false;
     opt.reuse_manifest = false;
+    opt.compressor = compressor::SnappyCompressor::ID;
     let mut db = DB::open("tooldb", opt).unwrap();
 
     match args[1].as_str() {
@@ -66,7 +67,7 @@ fn main() {
             }
             get(&mut db, &args[2]);
         }
-        "put" => {
+        "put" | "set" => {
             if args.len() < 4 {
                 panic!("Usage: {} put key val", args[0]);
             }

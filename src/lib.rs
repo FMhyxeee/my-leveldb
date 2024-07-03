@@ -2,7 +2,7 @@
 //! and is very close to the original, implementation-wise. The external API is relatively small
 //! and should be easy to use.
 //!
-//!
+//! ```
 //! use my_leveldb::{DB, DBIterator, LdbIterator, Options};
 //!
 //! let opt = my_leveldb::in_memory();
@@ -18,10 +18,16 @@
 //!
 //! db.delete(b"Hello").unwrap();
 //! db.flush().unwrap();
-//!
+//! ```
 //!
 
 #![allow(dead_code)]
+
+#[macro_use]
+mod infolog;
+
+// #[cfg(feature = "async")]
+mod asyncdb;
 
 mod block;
 mod block_builder;
@@ -33,8 +39,6 @@ mod env_common;
 mod error;
 mod filter;
 mod filter_block;
-#[macro_use]
-mod infolog;
 mod key_types;
 mod log;
 mod mem_env;
