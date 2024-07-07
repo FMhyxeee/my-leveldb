@@ -1,3 +1,2 @@
-extern crate rand;
-
+#[allow(dead_code)]
 mod skipmap;

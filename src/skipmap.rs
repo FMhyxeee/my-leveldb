@@ -1,29 +1,28 @@
-#![allow(dead_code)]
+use std::mem::{replace, transmute_copy};
 
-use std::{
-    cmp::Ordering,
-    mem::{replace, transmute_copy},
+use rand::{
+    rngs::{StdRng, ThreadRng},
+    RngCore, SeedableRng,
 };
 
-use rand::{rngs::StdRng, RngCore, SeedableRng};
-
 const MAX_HEIGHT: usize = 12;
+const BRANCHING_FACTOR: usize = 4;
 
 pub trait Comparator {
-    fn cmp(a: &[u8], b: &[u8]) -> Ordering;
+    fn cmp(a: &[u8], b: &[u8]) -> std::cmp::Ordering;
 }
 
 pub struct StandardComparator;
 
 impl Comparator for StandardComparator {
-    fn cmp(a: &[u8], b: &[u8]) -> Ordering {
+    fn cmp(a: &[u8], b: &[u8]) -> std::cmp::Ordering {
         a.cmp(b)
     }
 }
 
 struct Node {
     skips: Vec<Option<*mut Node>>,
-    //skip[0] points to the element in next; next provides proper ownership
+    // skips[0] points to the element in next; next provides proper ownership
     next: Option<Box<Node>>,
     key: Vec<u8>,
     value: Vec<u8>,
@@ -38,14 +37,13 @@ pub struct SkipMap<C: Comparator> {
 
 impl SkipMap<StandardComparator> {
     fn new() -> SkipMap<StandardComparator> {
-        SkipMap::new_with_cmp(StandardComparator {})
+        SkipMap::new_with_cmp(StandardComparator)
     }
 }
 
 impl<C: Comparator> SkipMap<C> {
-    fn new_with_cmp(c: C) -> SkipMap<C> {
-        let mut s = Vec::new();
-        s.resize(MAX_HEIGHT, None);
+    fn new_with_cmp(cmp: C) -> SkipMap<C> {
+        let s = vec![None; MAX_HEIGHT];
 
         SkipMap {
             head: Box::new(Node {
@@ -54,8 +52,8 @@ impl<C: Comparator> SkipMap<C> {
                 key: Vec::new(),
                 value: Vec::new(),
             }),
-            rand: StdRng::from_seed([47u8; 32]),
-            cmp: c,
+            rand: StdRng::from_rng(ThreadRng::default()).unwrap(),
+            cmp,
             len: 0,
         }
     }
@@ -68,27 +66,27 @@ impl<C: Comparator> SkipMap<C> {
         1 + (self.rand.next_u32() as usize % (MAX_HEIGHT - 1))
     }
 
-    fn contains(&mut self, key: &Vec<u8>) -> bool {
+    fn contains(&mut self, key: &[u8]) -> bool {
         if key.is_empty() {
             return false;
         }
 
-        let mut current: *const Node = unsafe { transmute_copy(&self.head.as_ref()) };
-
+        // Start at the highest skip link of the head node, and work down from there
+        let mut current: *const Node = &*self.head;
         let mut level = self.head.skips.len() - 1;
 
         loop {
             unsafe {
                 if let Some(next) = (*current).skips[level] {
-                    let ord = C::cmp(&(*next).key, key);
-
-                    match ord {
-                        Ordering::Less => {
+                    match C::cmp(&(*next).key, key) {
+                        std::cmp::Ordering::Less => {
                             current = next;
                             continue;
                         }
-                        Ordering::Equal => return true,
-                        Ordering::Greater => (),
+                        std::cmp::Ordering::Equal => {
+                            return true;
+                        }
+                        std::cmp::Ordering::Greater => (),
                     }
                 }
             }
@@ -101,26 +99,31 @@ impl<C: Comparator> SkipMap<C> {
         false
     }
 
-    fn insert(&mut self, key: Vec<u8>, val: Vec<u8>) {
+    fn insert(&mut self, key: &[u8], value: &[u8]) {
         assert!(!key.is_empty());
-        assert!(!val.is_empty());
+        assert!(!value.is_empty());
+
+        // Keeping track of skip entries what will need to be update.
 
         let new_height = self.random_height();
-        let mut prevs: Vec<Option<*mut Node>> = Vec::with_capacity(new_height);
 
         let mut level = MAX_HEIGHT - 1;
         let mut current: *mut Node = unsafe { transmute_copy(&self.head.as_mut()) };
 
-        prevs.resize(new_height, Some(current));
+        let mut prevs: Vec<Option<*mut Node>> = vec![Some(current); new_height];
 
+        // Find the node after which we want to insert the new node; this is the node with the key
+        // immediately smaller than the key to be inserted.
         loop {
             unsafe {
                 if let Some(next) = (*current).skips[level] {
-                    let ord = C::cmp(&(*next).key, &key);
-
-                    assert!(ord != Ordering::Equal, "No duplicates allowed");
-
-                    if ord == Ordering::Less {
+                    // If the wanted position is after the current node
+                    let ord = C::cmp(&(*next).key, key);
+                    assert!(
+                        ord != std::cmp::Ordering::Equal,
+                        "No duplicate keys allowed"
+                    );
+                    if ord == std::cmp::Ordering::Less {
                         current = next;
                         continue;
                     }
@@ -138,43 +141,38 @@ impl<C: Comparator> SkipMap<C> {
             }
         }
 
-        let mut new_skips = Vec::with_capacity(new_height);
-        new_skips.resize(new_height, None);
-
+        // Construct the new node
         let mut new = Box::new(Node {
-            skips: new_skips,
+            skips: vec![None; new_height],
             next: None,
-            key,
-            value: val,
+            key: key.to_vec(),
+            value: value.to_vec(),
         });
 
-        let newp = unsafe { transmute_copy(&(new.as_mut())) };
+        let newp = unsafe { transmute_copy(&new.as_mut()) };
 
-        // for idx in 0..new_height {
-        //     if let Some(prev) = prevs[idx] {
-        //         unsafe {
-        //             new.skips[idx] = (*prev).skips[idx];
-        //             (*prev).skips[idx] = Some(newp);
-        //         }
-        //     }
-        // }
-
-        for (idx, _item) in prevs.iter().enumerate().take(new_height) {
-            if let Some(prev) = prevs[idx] {
+        for (idx, prev) in prevs.iter().enumerate().take(new_height) {
+            if let &Some(prev) = prev {
                 unsafe {
                     new.skips[idx] = (*prev).skips[idx];
+                    // make prev node's every skips point to newp
                     (*prev).skips[idx] = Some(newp);
                 }
             }
         }
 
-        new.next = unsafe { replace(&mut (*current).next, None) };
+        // Insert new node by first replacing the previous element's next field to the new node
+        // assigning its value to new.next...
+        new.next = unsafe { (*current).next.take() };
+
+        let _ = unsafe { replace(&mut (*current).next, Some(new)) };
 
         self.len += 1;
     }
 
+    // Runs through the skipmap and prints everything including addresses
     fn dbg_print(&self) {
-        let mut current: *const Node = unsafe { transmute_copy(&self.head.as_ref()) };
+        let mut current: *const Node = &*self.head;
         loop {
             unsafe {
                 println!(
@@ -196,4 +194,58 @@ impl<C: Comparator> SkipMap<C> {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_insert() {
+        let mut sm = SkipMap::new();
+        sm.insert(b"hello", b"world");
+        sm.insert(b"foo", b"bar");
+        sm.insert(b"baz", b"qux");
+        sm.insert(b"quux", b"quuz");
+        sm.insert(b"corge", b"grault");
+        sm.insert(b"garply", b"waldo");
+        sm.insert(b"fred", b"plugh");
+        sm.insert(b"xyzzy", b"thud");
+        sm.insert(b"test", b"test");
+        assert_eq!(sm.len(), 9);
+
+        sm.dbg_print();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_no_dupes() {
+        let mut skm = SkipMap::new();
+        skm.insert(b"abc", b"def");
+        skm.insert(b"abd", b"def");
+        // This should panic
+        skm.insert(b"abc", b"def");
+    }
+
+    #[test]
+    fn test_contains() {
+        let mut sm = SkipMap::new();
+        sm.insert(b"hello", b"world");
+        sm.insert(b"foo", b"bar");
+        sm.insert(b"baz", b"qux");
+        sm.insert(b"quux", b"quuz");
+        sm.insert(b"corge", b"grault");
+        sm.insert(b"garply", b"waldo");
+        sm.insert(b"fred", b"plugh");
+        sm.insert(b"xyzzy", b"thud");
+        sm.insert(b"test", b"test");
+
+        assert!(sm.contains(b"hello"));
+        assert!(sm.contains(b"foo"));
+        assert!(sm.contains(b"baz"));
+        assert!(sm.contains(b"quux"));
+        assert!(sm.contains(b"corge"));
+        assert!(sm.contains(b"garply"));
+        assert!(sm.contains(b"fred"));
+        assert!(sm.contains(b"xyzzy"));
+        assert!(sm.contains(b"test"));
+        assert!(!sm.contains(b"not"));
+    }
+}
