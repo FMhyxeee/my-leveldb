@@ -63,7 +63,11 @@ impl<C: Comparator> SkipMap<C> {
     }
 
     fn random_height(&mut self) -> usize {
-        1 + (self.rand.next_u32() as usize % (MAX_HEIGHT - 1))
+        let mut height = 1;
+        while height < MAX_HEIGHT && self.rand.next_u32() % BRANCHING_FACTOR as u32 == 0 {
+            height += 1;
+        }
+        height
     }
 
     fn contains(&mut self, key: &[u8]) -> bool {
