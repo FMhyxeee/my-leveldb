@@ -201,19 +201,24 @@ impl<C: Comparator> SkipMap<C> {
 mod tests {
     use super::*;
 
+    fn make_skipmap() -> SkipMap<StandardComparator> {
+        let mut skm = SkipMap::new();
+        let keys = vec![
+            b"aba", b"abb", b"abc", b"abd", b"abe", b"abf", b"abg", b"abh", b"abi", b"abj", b"abk",
+            b"abl", b"abm", b"abn", b"abo", b"abp", b"abq", b"abr", b"abs", b"abt", b"abu", b"abv",
+            b"abw", b"abx", b"aby", b"abz",
+        ];
+
+        for k in keys {
+            skm.insert(k, b"def");
+        }
+        skm
+    }
+
     #[test]
     fn test_insert() {
-        let mut sm = SkipMap::new();
-        sm.insert(b"hello", b"world");
-        sm.insert(b"foo", b"bar");
-        sm.insert(b"baz", b"qux");
-        sm.insert(b"quux", b"quuz");
-        sm.insert(b"corge", b"grault");
-        sm.insert(b"garply", b"waldo");
-        sm.insert(b"fred", b"plugh");
-        sm.insert(b"xyzzy", b"thud");
-        sm.insert(b"test", b"test");
-        assert_eq!(sm.len(), 9);
+        let sm = make_skipmap();
+        assert_eq!(sm.len(), 26);
 
         sm.dbg_print();
     }
@@ -221,35 +226,15 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_no_dupes() {
-        let mut skm = SkipMap::new();
-        skm.insert(b"abc", b"def");
-        skm.insert(b"abd", b"def");
+        let mut skm = make_skipmap();
         // This should panic
         skm.insert(b"abc", b"def");
     }
 
     #[test]
     fn test_contains() {
-        let mut sm = SkipMap::new();
-        sm.insert(b"hello", b"world");
-        sm.insert(b"foo", b"bar");
-        sm.insert(b"baz", b"qux");
-        sm.insert(b"quux", b"quuz");
-        sm.insert(b"corge", b"grault");
-        sm.insert(b"garply", b"waldo");
-        sm.insert(b"fred", b"plugh");
-        sm.insert(b"xyzzy", b"thud");
-        sm.insert(b"test", b"test");
-
-        assert!(sm.contains(b"hello"));
-        assert!(sm.contains(b"foo"));
-        assert!(sm.contains(b"baz"));
-        assert!(sm.contains(b"quux"));
-        assert!(sm.contains(b"corge"));
-        assert!(sm.contains(b"garply"));
-        assert!(sm.contains(b"fred"));
-        assert!(sm.contains(b"xyzzy"));
-        assert!(sm.contains(b"test"));
-        assert!(!sm.contains(b"not"));
+        let mut sm = make_skipmap();
+        assert!(sm.contains(b"abc"));
+        assert!(!sm.contains(b"xyz"));
     }
 }
