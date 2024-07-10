@@ -115,7 +115,6 @@ impl<C: Comparator> SkipMap<C> {
 
     pub fn insert(&mut self, key: &[u8], value: &[u8]) {
         assert!(!key.is_empty());
-        assert!(!value.is_empty());
 
         // Keeping track of skip entries what will need to be update.
 
