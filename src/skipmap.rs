@@ -1,4 +1,7 @@
-use std::mem::{replace, transmute_copy};
+use std::{
+    marker,
+    mem::{replace, transmute_copy},
+};
 
 use rand::{
     rngs::{StdRng, ThreadRng},
@@ -174,6 +177,13 @@ impl<C: Comparator> SkipMap<C> {
         self.len += 1;
     }
 
+    fn iter(&self) -> SkipMapIter<C> {
+        SkipMapIter {
+            _map: marker::PhantomData,
+            current: &*self.head,
+        }
+    }
+
     // Runs through the skipmap and prints everything including addresses
     fn dbg_print(&self) {
         let mut current: *const Node = &*self.head;
@@ -193,6 +203,25 @@ impl<C: Comparator> SkipMap<C> {
                     break;
                 }
             }
+        }
+    }
+}
+
+pub struct SkipMapIter<'a, C: Comparator> {
+    _map: marker::PhantomData<&'a SkipMap<C>>,
+    current: *const Node,
+}
+
+impl<'a, C: Comparator + 'a> Iterator for SkipMapIter<'a, C> {
+    type Item = (&'a [u8], &'a [u8]);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // we first go to the next element, then return that -- in order to skip the head node
+        unsafe {
+            (*self.current).next.as_ref().map(|next| {
+                self.current = transmute_copy(&next.as_ref());
+                (&next.key[..], &next.value[..])
+            })
         }
     }
 }
@@ -236,5 +265,27 @@ mod tests {
         let mut sm = make_skipmap();
         assert!(sm.contains(b"abc"));
         assert!(!sm.contains(b"xyz"));
+    }
+
+    #[test]
+    fn test_iterator_0() {
+        let skm = SkipMap::new();
+        let mut i = 0;
+        for _ in skm.iter() {
+            i += 1;
+        }
+        assert_eq!(i, 0);
+    }
+
+    #[test]
+    fn test_iterator() {
+        let skm = make_skipmap();
+        let mut i = 0;
+        for (k, v) in skm.iter() {
+            assert!(!k.is_empty());
+            assert!(!v.is_empty());
+            i += 1;
+        }
+        assert_eq!(i, 26);
     }
 }
