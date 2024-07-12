@@ -5,6 +5,8 @@ use rand::{
     RngCore, SeedableRng,
 };
 
+use crate::types::LdbIterator;
+
 const MAX_HEIGHT: usize = 12;
 const BRANCHING_FACTOR: usize = 4;
 
@@ -226,7 +228,7 @@ pub struct SkipMapIter<'a, C: Comparator> {
     current: *const Node,
 }
 
-impl<'a, C: Comparator + 'a> SkipMapIter<'a, C> {
+impl<'a, C: Comparator> LdbIterator<'a> for SkipMapIter<'a, C> {
     fn seek(&mut self, key: &[u8]) {
         let node = self.map.get_greater_or_equal(key);
         self.current = unsafe { transmute_copy(&node) }
@@ -234,7 +236,7 @@ impl<'a, C: Comparator + 'a> SkipMapIter<'a, C> {
     fn valid(&self) -> bool {
         unsafe { !(*self.current).key.is_empty() }
     }
-    fn current(&self) -> (&[u8], &[u8]) {
+    fn current(&self) -> (&'a [u8], &'a [u8]) {
         assert!(self.valid());
         unsafe { (&(*self.current).key, &(*self.current).value) }
     }
@@ -300,6 +302,7 @@ mod tests {
         let skm = make_skipmap();
         assert_eq!(skm.get_greater_or_equal(b"abf").key, b"abf");
         assert_eq!(skm.get_greater_or_equal(b"ab{").key, b"abz");
+        assert_eq!(skm.get_greater_or_equal(b"aaa").key, b"aba");
     }
 
     #[test]
@@ -332,8 +335,12 @@ mod tests {
 
         iter.next();
         assert!(iter.valid());
-        iter.seek(b"abg");
-        assert_eq!(iter.current(), ("abg".as_bytes(), "def".as_bytes()));
+        iter.seek(b"abz");
+        assert_eq!(iter.current(), ("abz".as_bytes(), "def".as_bytes()));
+
+        // go back to beginning
+        iter.seek(b"aba");
+        assert_eq!(iter.current(), ("aba".as_bytes(), "def".as_bytes()));
     }
 
     #[test]

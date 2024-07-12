@@ -13,3 +13,9 @@ pub enum Status {
     InvalidArgument(String),
     IOError(String),
 }
+
+pub trait LdbIterator<'a>: Iterator {
+    fn seek(&mut self, key: &[u8]);
+    fn valid(&self) -> bool;
+    fn current(&self) -> Self::Item;
+}
