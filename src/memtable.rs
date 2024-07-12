@@ -76,7 +76,6 @@ impl<C: Comparator> MemTable<C> {
         let keysize = key.len();
         let valsize = value.len();
         let flagsize = <u64 as FixedInt>::ENCODED_SIZE;
-        println!("flagsize is {}", flagsize);
 
         let mut i = 0;
         let mut buf = Vec::with_capacity(

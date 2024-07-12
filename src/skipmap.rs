@@ -10,6 +10,8 @@ use crate::types::LdbIterator;
 const MAX_HEIGHT: usize = 12;
 const BRANCHING_FACTOR: usize = 4;
 
+/// Trait used to influnence how SkipMap determines the order of elements. Use StandardComparator
+/// for the normal implementation using numerical comparison.
 pub trait Comparator {
     fn cmp(a: &[u8], b: &[u8]) -> std::cmp::Ordering;
 }
@@ -22,14 +24,19 @@ impl Comparator for StandardComparator {
     }
 }
 
+/// A node is in skipmap contains links to the next node and others that are further away (skips);
+/// `Skips[0]` is the immedicate element after, that is, the element contains in `next`.
 struct Node {
     skips: Vec<Option<*mut Node>>,
-    // skips[0] points to the element in next; next provides proper ownership
     next: Option<Box<Node>>,
     key: Vec<u8>,
     value: Vec<u8>,
 }
 
+/// Implements the backing store for a `MemTable`. The impoertant methods are `insert()` and
+/// `contains()`; in order to get full key and value for an entry, use a `SkipMapIter` instance,
+/// `seek()` to the key to look up (this is as fast as any lookup in a skip map), and then call
+/// `current()`.
 pub struct SkipMap<C: Comparator> {
     head: Box<Node>,
     rand: StdRng,
@@ -84,7 +91,7 @@ impl<C: Comparator> SkipMap<C> {
         n.key.starts_with(key)
     }
 
-    //Return the node with key or the next smaller one.
+    //Return the node with key or the next greater one.
     fn get_greater_or_equal(&self, key: &[u8]) -> &Node {
         // Start at the highest skip link of the head node, and work down from there
         let mut current: *const Node = &*self.head;
@@ -341,6 +348,17 @@ mod tests {
         // go back to beginning
         iter.seek(b"aba");
         assert_eq!(iter.current(), ("aba".as_bytes(), "def".as_bytes()));
+
+        iter.seek(b"");
+        assert!(iter.valid());
+        loop {
+            if iter.next().is_some() {
+                continue;
+            } else {
+                break;
+            }
+        }
+        assert_eq!(iter.next(), None);
     }
 
     #[test]
