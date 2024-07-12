@@ -78,12 +78,12 @@ impl<C: Comparator> SkipMap<C> {
     }
 
     pub fn contains(&self, key: &[u8]) -> bool {
-        let n = self.get_next_smaller(key);
+        let n = self.get_greater_or_equal(key);
         n.key.starts_with(key)
     }
 
     //Return the node with key or the next smaller one.
-    fn get_next_smaller(&self, key: &[u8]) -> &Node {
+    fn get_greater_or_equal(&self, key: &[u8]) -> &Node {
         // Start at the highest skip link of the head node, and work down from there
         let mut current: *const Node = &*self.head;
         let mut level = self.head.skips.len() - 1;
@@ -99,7 +99,11 @@ impl<C: Comparator> SkipMap<C> {
                         std::cmp::Ordering::Equal => {
                             return &*next;
                         }
-                        std::cmp::Ordering::Greater => (),
+                        std::cmp::Ordering::Greater => {
+                            if level == 0 {
+                                return &*next;
+                            }
+                        }
                     }
                 }
             }
@@ -224,7 +228,7 @@ pub struct SkipMapIter<'a, C: Comparator> {
 
 impl<'a, C: Comparator + 'a> SkipMapIter<'a, C> {
     fn seek(&mut self, key: &[u8]) {
-        let node = self.map.get_next_smaller(key);
+        let node = self.map.get_greater_or_equal(key);
         self.current = unsafe { transmute_copy(&node) }
     }
     fn valid(&self) -> bool {
@@ -294,8 +298,8 @@ mod tests {
     #[test]
     fn test_seek() {
         let skm = make_skipmap();
-        assert_eq!(skm.get_next_smaller(b"abf").key, b"abf");
-        assert_eq!(skm.get_next_smaller(b"ab{").key, b"abz");
+        assert_eq!(skm.get_greater_or_equal(b"abf").key, b"abf");
+        assert_eq!(skm.get_greater_or_equal(b"ab{").key, b"abz");
     }
 
     #[test]
