@@ -35,11 +35,18 @@ impl LookupKey {
         }
     }
 
+    // return full key
     fn memtable_key(&self) -> &[u8] {
         &self.key
     }
 
+    /// Returns only key
     fn user_key(&self) -> &[u8] {
+        &self.key[self.key_offset..self.key.len() - <u64 as FixedInt>::ENCODED_SIZE]
+    }
+
+    /// Returns key+tag
+    fn internal_key(&self) -> &[u8] {
         &self.key[self.key_offset..]
     }
 }
