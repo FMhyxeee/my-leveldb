@@ -87,6 +87,10 @@ impl SnapshotList {
 
         self.map.remove(&ss);
     }
+
+    pub fn empty(&self) -> bool {
+        self.oldest == 0
+    }
 }
 
 #[cfg(test)]
@@ -96,10 +100,13 @@ mod tests {
     #[test]
     fn test_snapshot_list() {
         let mut l = SnapshotList::new();
+        assert!(l.empty());
 
         let oldest = l.new_snapshot(1);
         l.new_snapshot(2);
         let newest = l.new_snapshot(0);
+
+        assert!(!l.empty());
 
         assert_eq!(l.oldest(), 1);
         assert_eq!(l.newest(), 0);
