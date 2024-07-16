@@ -78,12 +78,10 @@ impl<W: Write> LogWriter<W> {
     fn emit_record(&mut self, t: RecordType, data: &[u8], len: usize) -> io::Result<usize> {
         assert!(len < 256 * 256);
 
-        let mut digest = self.crc_alg.digest();
         let mut combined_data = vec![t as u8];
-        combined_data.extend_from_slice(data);
-        digest.update(&combined_data);
+        combined_data.extend_from_slice(&data[0..len]);
 
-        let chksum = digest.finalize();
+        let chksum = self.crc_alg.checksum(&combined_data);
 
         let mut s = 0;
         s += self.dst.write(&chksum.encode_fixed_vec())?;
@@ -155,7 +153,7 @@ impl<R: io::Read> LogReader<R> {
             bytes_read = self
                 .src
                 .read(&mut dst[dst_offset..dst_offset + length as usize])?;
-            dst_offset += bytes_read;
+            self.blk_off += bytes_read;
 
             if self.checksums
                 && !self.check_integrity(typ, &dst[dst_offset..dst_offset + bytes_read], checksum)
@@ -179,12 +177,10 @@ impl<R: io::Read> LogReader<R> {
     }
 
     fn check_integrity(&mut self, typ: u8, data: &[u8], checksum: u32) -> bool {
-        let mut digest = self.crc_alg.digest();
         let mut combined_data = vec![typ];
         combined_data.extend_from_slice(data);
-        digest.update(&combined_data);
 
-        let chksum = digest.finalize();
+        let chksum = self.crc_alg.checksum(&combined_data);
 
         checksum == chksum
     }
@@ -223,25 +219,23 @@ mod tests {
 
         assert_eq!(lw.dst.len(), 93);
 
-        println!("{:?}", lw.dst);
+        let mut lr = LogReader::new(lw.dst.as_slice(), true, 0);
+        lr.blocksize = super::HEADER_SIZE + 10;
+        let mut dst = Vec::with_capacity(128);
+        let mut i = 0;
 
-        // let mut lr = LogReader::new(lw.dst.as_slice(), true, 0);
-        // lr.blocksize = super::HEADER_SIZE + 10;
-        // let mut dst = Vec::with_capacity(128);
-        // let mut i = 0;
+        loop {
+            let r = lr.read(&mut dst);
 
-        // loop {
-        //     let r = lr.read(&mut dst);
+            if r.is_err() {
+                panic!("{}", r.unwrap_err());
+            } else if r.unwrap() == 0 {
+                break;
+            }
 
-        //     if !r.is_ok() {
-        //         panic!("{}", r.unwrap_err());
-        //     } else if r.unwrap() == 0 {
-        //         break;
-        //     }
-
-        //     assert_eq!(dst, data[i]);
-        //     i += 1;
-        // }
-        // assert_eq!(i, data.len());
+            assert_eq!(dst, data[i]);
+            i += 1;
+        }
+        assert_eq!(i, data.len());
     }
 }
