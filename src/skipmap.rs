@@ -235,20 +235,6 @@ pub struct SkipMapIter<'a, C: Comparator> {
     current: *const Node,
 }
 
-impl<'a, C: Comparator> LdbIterator<'a> for SkipMapIter<'a, C> {
-    fn seek(&mut self, key: &[u8]) {
-        let node = self.map.get_greater_or_equal(key);
-        self.current = unsafe { transmute_copy(&node) }
-    }
-    fn valid(&self) -> bool {
-        unsafe { !(*self.current).key.is_empty() }
-    }
-    fn current(&self) -> (&'a [u8], &'a [u8]) {
-        assert!(self.valid());
-        unsafe { (&(*self.current).key, &(*self.current).value) }
-    }
-}
-
 impl<'a, C: Comparator + 'a> Iterator for SkipMapIter<'a, C> {
     type Item = (&'a [u8], &'a [u8]);
 
@@ -260,6 +246,20 @@ impl<'a, C: Comparator + 'a> Iterator for SkipMapIter<'a, C> {
                 (&next.key[..], &next.value[..])
             })
         }
+    }
+}
+
+impl<'a, C: Comparator> LdbIterator<'a> for SkipMapIter<'a, C> {
+    fn seek(&mut self, key: &[u8]) {
+        let node = self.map.get_greater_or_equal(key);
+        self.current = unsafe { transmute_copy(&node) }
+    }
+    fn valid(&self) -> bool {
+        unsafe { !(*self.current).key.is_empty() }
+    }
+    fn current(&self) -> Self::Item {
+        assert!(self.valid());
+        unsafe { (&(*self.current).key, &(*self.current).value) }
     }
 }
 

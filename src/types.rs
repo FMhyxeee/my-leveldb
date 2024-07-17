@@ -20,6 +20,10 @@ pub enum Status {
 /// An extension of the standard `Iterator` trait that supports some methods necessary for LevelDB.
 /// This works because the iterators used are stateful and keep the last returned element.
 pub trait LdbIterator<'a>: Iterator {
+    // We're emulating LevelDB's Slice type here using actual slices with the lifetime of the
+    // iterator. The lifetime of the iterator is usually the one of the backing storage (Block,
+    // MemTable, SkipMap...)
+    // type Item = (&'a [u8], &'a [u8]);
     fn seek(&mut self, key: &[u8]);
     fn valid(&self) -> bool;
     fn current(&self) -> Self::Item;

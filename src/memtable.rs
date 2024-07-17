@@ -113,10 +113,11 @@ impl<C: Comparator> MemTable<C> {
         buf
     }
 
-    // returns (keylen, key, tag, vallen, val)
-    fn parse_memtable_key(mkey: &[u8]) -> (usize, Vec<u8>, u64, usize, Vec<u8>) {
+    /// Parses a memtable key and returns  (keylen, key offset, tag, vallen, val offset).
+    /// If the key only contains (keylen, key, tag), the vallen and val offset return values will be
+    fn parse_memtable_key(mkey: &[u8]) -> (usize, usize, u64, usize, usize) {
         let (keylen, mut i): (usize, usize) = VarInt::decode_var(mkey).unwrap();
-        let key = mkey[i..i + keylen].to_vec();
+        let keyoff = i;
         i += keylen;
 
         let flag = u64::decode_fixed(&mkey[i..i + <u64 as FixedInt>::ENCODED_SIZE]).unwrap();
@@ -125,11 +126,11 @@ impl<C: Comparator> MemTable<C> {
         if mkey.len() > i {
             let (vallen, j): (usize, usize) = VarInt::decode_var(&mkey[i..]).unwrap();
             i += j;
-            let val = mkey[i..i + vallen].to_vec();
+            let valoff = i;
 
-            (keylen, key, flag, vallen, val)
+            (keylen, keyoff, flag, vallen, valoff)
         } else {
-            (keylen, key, flag, 0, Vec::new())
+            (keylen, keyoff, 0, 0, 0)
         }
     }
 
@@ -139,12 +140,16 @@ impl<C: Comparator> MemTable<C> {
 
         if iter.valid() {
             let foundkey = iter.current().0;
-            let (_lkeylen, lkey, _, _, _) = Self::parse_memtable_key(key.memtable_key());
-            let (_rkeylen, rkey, tag, _vallen, val) = Self::parse_memtable_key(foundkey);
+            let (lkeylen, lkeyoff, _, _, _) = Self::parse_memtable_key(key.memtable_key());
+            let (fkeylen, fkeyoff, tag, vallen, valoff) = Self::parse_memtable_key(foundkey);
 
-            if C::cmp(&lkey, &rkey) == Ordering::Equal {
+            if C::cmp(
+                &key.memtable_key()[lkeyoff..lkeyoff + lkeylen],
+                &foundkey[fkeyoff..fkeyoff + fkeylen],
+            ) == Ordering::Equal
+            {
                 if tag & 0xff == ValueType::TypeValue as u64 {
-                    return Result::Ok(val);
+                    return Result::Ok(foundkey[valoff..valoff + vallen].to_vec());
                 } else {
                     return Result::Err(Status::NotFound("Not found".to_string()));
                 }
@@ -167,15 +172,19 @@ pub struct MemtableIterator<'a, C: Comparator> {
 }
 
 impl<'a, C: 'a + Comparator> Iterator for MemtableIterator<'a, C> {
-    type Item = (Vec<u8>, Vec<u8>);
+    type Item = (&'a [u8], &'a [u8]);
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if let Some((foundkey, _)) = self.skipmapiter.next() {
-                let (_, key, tag, _, val) = MemTable::<C>::parse_memtable_key(foundkey);
+                let (keylen, keyoff, tag, vallen, valoff) =
+                    MemTable::<C>::parse_memtable_key(foundkey);
 
                 if tag & 0xff == ValueType::TypeValue as u64 {
-                    return Some((key, val));
+                    return Some((
+                        &foundkey[keyoff..keyoff + keylen],
+                        &foundkey[valoff..valoff + vallen],
+                    ));
                 } else {
                     continue;
                 }
@@ -194,10 +203,13 @@ impl<'a, C: 'a + Comparator> LdbIterator<'a> for MemtableIterator<'a, C> {
         assert!(self.valid());
 
         let (foundkey, _) = self.skipmapiter.current();
-        let (_, key, tag, _, val) = MemTable::<C>::parse_memtable_key(foundkey);
+        let (keylen, keyoff, tag, vallen, valoff) = MemTable::<C>::parse_memtable_key(foundkey);
 
         if tag & 0xff == ValueType::TypeValue as u64 {
-            (key, val)
+            (
+                &foundkey[keyoff..keyoff + keylen],
+                &foundkey[valoff..valoff + vallen],
+            )
         } else {
             panic!("should not happen");
         }
@@ -240,6 +252,28 @@ mod tests {
     }
 
     #[test]
+    fn test_add_get() {
+        let mt = get_memtable();
+
+        if let Result::Ok(v) = mt.get(&LookupKey::new(b"abc", 120)) {
+            assert_eq!(v, "123".as_bytes().to_vec());
+        } else {
+            panic!("not found");
+        }
+
+        if let Result::Ok(v) = mt.get(&LookupKey::new(b"abe", 122)) {
+            assert_eq!(v, "125".as_bytes().to_vec());
+        } else {
+            panic!("not found");
+        }
+
+        if let Result::Ok(v) = mt.get(&LookupKey::new(b"abc", 124)) {
+            println!("{:?}", v);
+            panic!("found");
+        }
+    }
+
+    #[test]
     fn test_memtable_iterator() {
         let mt = get_memtable();
         let mut iter = mt.iter();
@@ -259,12 +293,12 @@ mod tests {
     #[test]
     fn test_parse_memtable_key() {
         let key = vec![3, 1, 2, 3, 1, 123, 0, 0, 0, 0, 0, 0, 3, 4, 5, 6];
-        let (keylen, key, tag, vallen, val) =
+        let (keylen, keyoff, tag, vallen, valoff) =
             MemTable::<StandardComparator>::parse_memtable_key(&key);
         assert_eq!(keylen, 3);
-        assert_eq!(key, vec![1, 2, 3]);
+        assert_eq!(&key[keyoff..keyoff + keylen], vec![1, 2, 3]);
         assert_eq!(tag, 123 << 8 | 1);
         assert_eq!(vallen, 3);
-        assert_eq!(val, vec![4, 5, 6]);
+        assert_eq!(&key[valoff..valoff + vallen], vec![4, 5, 6]);
     }
 }
