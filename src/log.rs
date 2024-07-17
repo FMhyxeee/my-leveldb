@@ -18,9 +18,9 @@ pub enum RecordType {
 
 pub struct LogWriter<W: Write> {
     dst: W,
+    crc_alg: crc::Crc<u32>,
     current_block_offset: usize,
     block_size: usize,
-    crc_alg: crc::Crc<u32>,
 }
 
 impl<W: Write> LogWriter<W> {
@@ -28,9 +28,9 @@ impl<W: Write> LogWriter<W> {
         let crc_alg = crc::Crc::<u32>::new(&crc::CRC_32_CKSUM);
         LogWriter {
             dst: writer,
+            crc_alg,
             current_block_offset: 0,
             block_size: BLOCK_SIZE,
-            crc_alg,
         }
     }
 
@@ -96,12 +96,11 @@ impl<W: Write> LogWriter<W> {
 
 pub struct LogReader<R: io::Read> {
     src: R,
+    crc_alg: crc::Crc<u32>,
     blk_off: usize,
     blocksize: usize,
-    checksums: bool,
-
-    crc_alg: crc::Crc<u32>,
     head_scratch: [u8; HEADER_SIZE],
+    checksums: bool,
 }
 
 impl<R: io::Read> LogReader<R> {
@@ -109,11 +108,11 @@ impl<R: io::Read> LogReader<R> {
         let crc_alg = crc::Crc::<u32>::new(&crc::CRC_32_CKSUM);
         LogReader {
             src,
+            crc_alg,
             blk_off: offset,
             blocksize: BLOCK_SIZE,
-            checksums,
-            crc_alg,
             head_scratch: [0; HEADER_SIZE],
+            checksums,
         }
     }
 
