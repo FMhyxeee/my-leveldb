@@ -17,6 +17,20 @@ pub enum Status {
     IOError(String),
 }
 
+/// Trait used to influnence how SkipMap determines the order of elements. Use StandardComparator
+/// for the normal implementation using numerical comparison.
+pub trait Comparator {
+    fn cmp(a: &[u8], b: &[u8]) -> std::cmp::Ordering;
+}
+
+pub struct StandardComparator;
+
+impl Comparator for StandardComparator {
+    fn cmp(a: &[u8], b: &[u8]) -> std::cmp::Ordering {
+        a.cmp(b)
+    }
+}
+
 /// An extension of the standard `Iterator` trait that supports some methods necessary for LevelDB.
 /// This works because the iterators used are stateful and keep the last returned element.
 pub trait LdbIterator<'a>: Iterator {

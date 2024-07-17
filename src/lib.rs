@@ -4,4 +4,4 @@ mod memtable;
 mod skipmap;
 mod types;
 
-pub use skipmap::Comparator;
+pub use types::Comparator;

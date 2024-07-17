@@ -5,24 +5,10 @@ use rand::{
     RngCore, SeedableRng,
 };
 
-use crate::types::LdbIterator;
+use crate::types::{Comparator, LdbIterator, StandardComparator};
 
 const MAX_HEIGHT: usize = 12;
 const BRANCHING_FACTOR: usize = 4;
-
-/// Trait used to influnence how SkipMap determines the order of elements. Use StandardComparator
-/// for the normal implementation using numerical comparison.
-pub trait Comparator {
-    fn cmp(a: &[u8], b: &[u8]) -> std::cmp::Ordering;
-}
-
-pub struct StandardComparator;
-
-impl Comparator for StandardComparator {
-    fn cmp(a: &[u8], b: &[u8]) -> std::cmp::Ordering {
-        a.cmp(b)
-    }
-}
 
 /// A node is in skipmap contains links to the next node and others that are further away (skips);
 /// `Skips[0]` is the immedicate element after, that is, the element contains in `next`.

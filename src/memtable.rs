@@ -3,8 +3,8 @@ use std::cmp::Ordering;
 use integer_encoding::{FixedInt, VarInt};
 
 use crate::{
-    skipmap::{SkipMap, SkipMapIter, StandardComparator},
-    types::{LdbIterator, SequenceNumber, Status, ValueType},
+    skipmap::{SkipMap, SkipMapIter},
+    types::{LdbIterator, SequenceNumber, StandardComparator, Status, ValueType},
     Comparator,
 };
 
@@ -23,7 +23,7 @@ impl LookupKey {
         key.resize(k.len().required_space(), 0);
         i = k.len().encode_var(&mut key[i..]);
 
-        key.extend(k.iter());
+        key.extend_from_slice(k);
         i += k.len();
 
         key.resize(i + <u64 as FixedInt>::ENCODED_SIZE, 0);
