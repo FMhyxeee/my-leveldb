@@ -191,7 +191,7 @@ impl<C: Comparator> BlockBuilder<C> {
 
         let mut shared = 0;
 
-        if self.counter <= self.opt.block_restart_interval {
+        if self.counter < self.opt.block_restart_interval {
             let smallest = if self.last_key.len() < key.len() {
                 self.last_key.len()
             } else {
@@ -246,5 +246,69 @@ impl<C: Comparator> BlockBuilder<C> {
 
         // done
         self.buffer
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{block::Block, types::Options};
+
+    use super::BlockBuilder;
+
+    fn get_data() -> Vec<(&'static [u8], &'static [u8])> {
+        vec![
+            ("key1".as_bytes(), "value1".as_bytes()),
+            (
+                "loooooooooooooooooooooooooooooooooongerkey1".as_bytes(),
+                "shrtvl1".as_bytes(),
+            ),
+            ("medium length key 1".as_bytes(), "some value 2".as_bytes()),
+            ("prefix_key1".as_bytes(), "value".as_bytes()),
+            ("prefix_key2".as_bytes(), "value".as_bytes()),
+            ("prefix_key3".as_bytes(), "value".as_bytes()),
+        ]
+    }
+
+    #[test]
+    fn test_block_builder() {
+        let o = Options {
+            block_restart_interval: 3,
+            ..Default::default()
+        };
+
+        let mut builder = BlockBuilder::new(o);
+
+        for &(k, v) in get_data().iter() {
+            builder.add(k, v);
+            assert!(builder.counter <= 3);
+            // println!("{:?}", builder.counter);
+        }
+
+        let block = builder.finish();
+        // println!("{:?}", block);
+
+        assert_eq!(block.len(), 149)
+    }
+
+    #[test]
+    fn test_build_iterate() {
+        let data = get_data();
+        let mut builder = BlockBuilder::new(Options::default());
+
+        for &(k, v) in data.iter() {
+            builder.add(k, v);
+        }
+
+        let block_contents = builder.finish();
+
+        let block = Block::new(block_contents);
+        let block_iter = block.iter();
+        let mut i = 0;
+        for (k, v) in block_iter {
+            assert_eq!(&k[..], data[i].0);
+            assert_eq!(v, data[i].1);
+            i += 1;
+        }
+        assert_eq!(i, data.len());
     }
 }
