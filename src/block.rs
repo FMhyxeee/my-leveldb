@@ -62,6 +62,7 @@ impl<C: Comparator> Block<C> {
         BlockIter {
             block: self,
             current_restart_ix: 0,
+            current_entry_offset: 0,
             offset: 0,
             key: Vec::new(),
             val_offset: 0,
@@ -71,7 +72,11 @@ impl<C: Comparator> Block<C> {
 
 pub struct BlockIter<'a, C: 'a + Comparator> {
     block: &'a Block<C>,
+    // start of next entry
     offset: usize,
+    // start of current entry
+    current_entry_offset: usize,
+    // tracks the last restart we encountered
     current_restart_ix: usize,
 
     // We assemble the key from two parts usually, so we keep the current full key here.
@@ -118,9 +123,9 @@ impl<'a, C: Comparator> Iterator for BlockIter<'a, C> {
     type Item = (Vec<u8>, &'a [u8]);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let current_offset = self.offset;
+        self.current_entry_offset = self.offset;
 
-        if current_offset >= self.block.restarts_off {
+        if self.current_entry_offset >= self.block.restarts_off {
             return None;
         }
         let (shared, non_shared, valsize) = self.parse_entry();
@@ -131,7 +136,7 @@ impl<'a, C: Comparator> Iterator for BlockIter<'a, C> {
 
         let num_restarts = self.block.number_restarts();
         while self.current_restart_ix + 1 < num_restarts
-            && self.block.get_restart_point(self.current_restart_ix + 1) < current_offset
+            && self.block.get_restart_point(self.current_restart_ix + 1) < self.current_entry_offset
         {
             self.current_restart_ix += 1;
         }
@@ -189,6 +194,32 @@ impl<'a, C: 'a + Comparator> LdbIterator<'a> for BlockIter<'a, C> {
             self.key.clone(),
             &self.block.data[self.val_offset..self.offset],
         )
+    }
+
+    fn prev(&mut self) -> Option<Self::Item> {
+        // as in the original implementation -- seek to last restart point, the look for key
+        let current_offset = self.current_entry_offset;
+
+        // At the beginning, can't go further back
+        if current_offset == 0 {
+            return None;
+        }
+
+        while self.block.get_restart_point(self.current_restart_ix) >= current_offset {
+            self.current_restart_ix -= 1;
+        }
+
+        self.offset = self.block.get_restart_point(self.current_restart_ix);
+        assert!(self.offset < current_offset);
+        let mut result;
+
+        loop {
+            result = self.next();
+            if self.offset >= current_offset {
+                break;
+            }
+        }
+        result
     }
 }
 
@@ -350,6 +381,42 @@ mod tests {
             i += 1;
         }
         assert_eq!(i, data.len());
+    }
+
+    #[test]
+    fn test_iterate_reverse() {
+        let o = Options {
+            block_restart_interval: 3,
+            ..Default::default()
+        };
+
+        let data = get_data();
+        let mut builder = BlockBuilder::new(o);
+
+        for &(k, v) in data.iter() {
+            builder.add(k, v);
+        }
+
+        let block_contents = builder.finish();
+        let block = Block::new(block_contents);
+        let mut block_iter = block.iter();
+
+        assert!(!block_iter.valid());
+        assert_eq!(
+            block_iter.next(),
+            Some(("key1".as_bytes().to_vec(), "value1".as_bytes()))
+        );
+        assert!(block_iter.valid());
+        block_iter.next();
+        assert!(block_iter.valid());
+        block_iter.prev();
+        assert!(block_iter.valid());
+        assert_eq!(
+            block_iter.current(),
+            ("key1".as_bytes().to_vec(), "value1".as_bytes())
+        );
+        block_iter.prev();
+        assert!(block_iter.valid());
     }
 
     #[test]

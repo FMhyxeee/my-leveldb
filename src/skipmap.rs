@@ -8,7 +8,7 @@ use rand::{
 use crate::types::{Comparator, LdbIterator, StandardComparator};
 
 const MAX_HEIGHT: usize = 12;
-const BRANCHING_FACTOR: usize = 4;
+const BRANCHING_FACTOR: u32 = 4;
 
 /// A node is in skipmap contains links to the next node and others that are further away (skips);
 /// `Skips[0]` is the immedicate element after, that is, the element contains in `next`.
@@ -66,7 +66,7 @@ impl<C: Comparator> SkipMap<C> {
 
     fn random_height(&mut self) -> usize {
         let mut height = 1;
-        while height < MAX_HEIGHT && self.rand.next_u32() % BRANCHING_FACTOR as u32 == 0 {
+        while height < MAX_HEIGHT && self.rand.next_u32() % BRANCHING_FACTOR == 0 {
             height += 1;
         }
         height
@@ -80,7 +80,7 @@ impl<C: Comparator> SkipMap<C> {
     //Return the node with key or the next greater one.
     fn get_greater_or_equal(&self, key: &[u8]) -> &Node {
         // Start at the highest skip link of the head node, and work down from there
-        let mut current: *const Node = &*self.head;
+        let mut current: *const Node = unsafe { transmute_copy(&self.head.as_ref()) };
         let mut level = self.head.skips.len() - 1;
 
         loop {
@@ -96,7 +96,39 @@ impl<C: Comparator> SkipMap<C> {
                         }
                         std::cmp::Ordering::Greater => {
                             if level == 0 {
-                                return &*next;
+                                return &(*next);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if level == 0 {
+                break;
+            }
+            level -= 1;
+        }
+        unsafe { &*current }
+    }
+
+    /// Finds the node immediately before the node with key
+    fn get_next_smaller(&self, key: &[u8]) -> &Node {
+        self.dbg_print();
+        // Start at the highest skip link of the head node, and work down from there
+        let mut current: *const Node = unsafe { transmute_copy(&self.head.as_ref()) };
+        let mut level = self.head.skips.len() - 1;
+
+        loop {
+            unsafe {
+                if let Some(next) = (*current).skips[level] {
+                    match C::cmp(&(*next).key, key) {
+                        std::cmp::Ordering::Less => {
+                            current = next;
+                            continue;
+                        }
+                        _ => {
+                            if level == 0 {
+                                return &*current;
                             }
                         }
                     }
@@ -117,10 +149,9 @@ impl<C: Comparator> SkipMap<C> {
         // Keeping track of skip entries what will need to be update.
 
         let new_height = self.random_height();
-
-        let mut level = MAX_HEIGHT - 1;
         let mut current: *mut Node = unsafe { transmute_copy(&self.head.as_mut()) };
 
+        let mut level = MAX_HEIGHT - 1;
         let mut prevs: Vec<Option<*mut Node>> = vec![Some(current); new_height];
 
         // Find the node after which we want to insert the new node; this is the node with the key
@@ -151,6 +182,7 @@ impl<C: Comparator> SkipMap<C> {
                 level -= 1;
             }
         }
+        print!("prevs is {:?}", prevs);
 
         // Construct the new node
         let mut new = Box::new(Node {
@@ -247,6 +279,18 @@ impl<'a, C: Comparator> LdbIterator<'a> for SkipMapIter<'a, C> {
         assert!(self.valid());
         unsafe { (&(*self.current).key, &(*self.current).value) }
     }
+
+    fn prev(&mut self) -> Option<Self::Item> {
+        // Going after the original Implementation here; we just seek to the node before current().
+        let prev = self.map.get_next_smaller(self.current().0);
+        self.current = prev;
+
+        if !prev.key.is_empty() {
+            Some((&prev.key, &prev.value))
+        } else {
+            None
+        }
+    }
 }
 
 #[cfg(test)]
@@ -263,6 +307,8 @@ mod tests {
 
         for k in keys {
             skm.insert(k, b"def");
+            println!("---------------------------------");
+            skm.dbg_print();
         }
         skm
     }
@@ -291,11 +337,15 @@ mod tests {
     }
 
     #[test]
-    fn test_seek() {
+    fn test_find() {
         let skm = make_skipmap();
         assert_eq!(skm.get_greater_or_equal(b"abf").key, b"abf");
         assert_eq!(skm.get_greater_or_equal(b"ab{").key, b"abz");
         assert_eq!(skm.get_greater_or_equal(b"aaa").key, b"aba");
+        assert_eq!(skm.get_greater_or_equal(b"ab").key, b"aba");
+        assert_eq!(skm.get_greater_or_equal(b"abc").key, b"abc");
+        assert_eq!(skm.get_next_smaller(b"abd").key, b"abc");
+        assert_eq!(skm.get_next_smaller(b"ab{").key, b"abz");
     }
 
     #[test]
@@ -354,5 +404,20 @@ mod tests {
         let initial_mem =
             size_of::<SkipMap<StandardComparator>>() + MAX_HEIGHT * size_of::<Option<*mut Node>>();
         assert_eq!(mem, initial_mem);
+    }
+
+    #[test]
+    fn test_iterator_prev() {
+        let skm = make_skipmap();
+
+        let mut iter = skm.iter();
+
+        iter.next();
+        assert!(iter.valid());
+        iter.prev();
+        assert!(!iter.valid());
+        iter.seek(b"abc");
+        iter.prev();
+        assert_eq!(iter.current(), ("abb".as_bytes(), "def".as_bytes()));
     }
 }

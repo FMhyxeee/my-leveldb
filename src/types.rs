@@ -74,6 +74,7 @@ pub trait LdbIterator<'a>: Iterator {
     fn seek(&mut self, key: &[u8]);
     fn valid(&self) -> bool;
     fn current(&self) -> Self::Item;
+    fn prev(&mut self) -> Option<Self::Item>;
 }
 
 /// Supplied to DB read operations.
