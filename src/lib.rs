@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 mod block;
+mod blockhandle;
 mod log;
 mod memtable;
 mod skipmap;
