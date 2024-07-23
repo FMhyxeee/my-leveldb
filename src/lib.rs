@@ -2,6 +2,7 @@
 mod block;
 mod blockhandle;
 mod filter;
+mod filter_block;
 mod log;
 mod memtable;
 mod skipmap;
