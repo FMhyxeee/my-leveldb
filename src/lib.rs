@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 mod block;
 mod blockhandle;
+mod env;
 mod filter;
 mod filter_block;
 mod log;
