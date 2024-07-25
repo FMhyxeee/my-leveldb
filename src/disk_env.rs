@@ -1,4 +1,13 @@
-use std::{collections::HashSet, fs, io::Result, path::Path, sync::Mutex, thread, time};
+use std::{
+    collections::HashSet,
+    fs,
+    io::{Error, ErrorKind, Result},
+    path::Path,
+    sync::Mutex,
+    thread, time,
+};
+
+use fs4::FileExt;
 
 use crate::env::{Env, Logger};
 
@@ -86,14 +95,31 @@ impl Env for PosixDiskEnv {
         fs::rename(from, to)
     }
 
-    fn lock(&self, _path: &Path) -> Result<Self::FileLock> {
-        todo!()
+    fn lock(&self, path: &Path) -> Result<Self::FileLock> {
+        let mut locks = self.locks.lock().unwrap();
+        if locks.contains(path.to_str().unwrap()) {
+            Err(Error::new(ErrorKind::AlreadyExists, "File already locked"))
+        } else {
+            let f = fs::OpenOptions::new().write(true).open(path)?;
+
+            match f.try_lock_exclusive() {
+                Ok(_) => {
+                    locks.insert(path.to_str().unwrap().to_string());
+                    Ok(DiskFileLock {
+                        p: path.to_str().unwrap().to_string(),
+                        f,
+                    })
+                }
+                Err(e) => Err(e),
+            }
+        }
     }
 
-    fn unlock(&self, _l: Self::FileLock) {
-        // let mut locks = self.locks.lock().unwrap();
-
-        todo!()
+    fn unlock(&self, l: Self::FileLock) {
+        let mut locks = self.locks.lock().unwrap();
+        if locks.contains(&l.p) {
+            let _ = locks.take(&l.p).unwrap();
+        }
     }
 
     fn new_logger(&self, p: &Path) -> Result<Logger> {
@@ -154,7 +180,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_locking() {
         let env = PosixDiskEnv::new();
         let n = "testfile.123".to_string();

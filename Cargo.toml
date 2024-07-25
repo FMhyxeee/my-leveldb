@@ -7,5 +7,6 @@ edition = "2021"
 
 [dependencies]
 crc = "3.2.1"
+fs4 = "0.8.4"
 integer-encoding = "4.0.0"
 rand = "0.8.5"
