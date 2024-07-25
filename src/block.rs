@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 
-use crate::types::{LdbIterator, Options};
+use crate::options::Options;
+use crate::types::LdbIterator;
 use crate::{types::StandardComparator, Comparator};
 
 use integer_encoding::FixedInt;
@@ -319,10 +320,7 @@ impl<C: Comparator> BlockBuilder<C> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        block::Block,
-        types::{LdbIterator, Options},
-    };
+    use crate::{block::Block, options::Options, types::LdbIterator};
 
     use super::BlockBuilder;
 
