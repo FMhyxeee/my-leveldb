@@ -93,8 +93,8 @@ impl WriteBatch {
         }
     }
 
-    fn insert_into_memtable<C: Comparator>(&self, mt: &mut MemTable<C>) {
-        let mut sequence_num = self.sequence();
+    fn insert_into_memtable<C: Comparator>(&self, seq: SequenceNumber, mt: &mut MemTable<C>) {
+        let mut sequence_num = seq;
 
         for (k, v) in self.iter() {
             match v {
@@ -105,7 +105,8 @@ impl WriteBatch {
         }
     }
 
-    fn encode(self) -> Vec<u8> {
+    fn encode(mut self, seq: SequenceNumber) -> Vec<u8> {
+        self.set_sequence(seq);
         self.entries
     }
 }
@@ -180,6 +181,6 @@ mod tests {
             }
         }
 
-        assert_eq!(b.encode().len(), 49);
+        assert_eq!(b.encode(1).len(), 49);
     }
 }
