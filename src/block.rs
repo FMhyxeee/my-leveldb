@@ -225,7 +225,8 @@ impl<'a, C: 'a + Comparator> LdbIterator<'a> for BlockIter<'a, C> {
 }
 
 pub struct BlockBuilder<C: Comparator> {
-    opt: Options<C>,
+    opt: Options,
+    cmp: C,
     buffer: Vec<u8>,
     restarts: Vec<u32>,
 
@@ -234,12 +235,13 @@ pub struct BlockBuilder<C: Comparator> {
 }
 
 impl<C: Comparator> BlockBuilder<C> {
-    fn new(o: Options<C>) -> BlockBuilder<C> {
+    fn new(o: Options, cmp: C) -> BlockBuilder<C> {
         let mut restarts = vec![0];
         restarts.reserve(1023);
 
         BlockBuilder {
             opt: o,
+            cmp,
             buffer: Vec::new(),
             restarts,
             last_key: Vec::new(),
@@ -324,7 +326,11 @@ impl<C: Comparator> BlockBuilder<C> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{block::Block, options::Options, types::LdbIterator};
+    use crate::{
+        block::Block,
+        options::Options,
+        types::{LdbIterator, StandardComparator},
+    };
 
     use super::BlockBuilder;
 
@@ -349,7 +355,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut builder = BlockBuilder::new(o);
+        let mut builder = BlockBuilder::new(o, StandardComparator);
 
         for &(k, v) in get_data().iter() {
             builder.add(k, v);
@@ -367,7 +373,7 @@ mod tests {
     #[test]
     fn test_build_iterate() {
         let data = get_data();
-        let mut builder = BlockBuilder::new(Options::default());
+        let mut builder = BlockBuilder::new(Options::default(), StandardComparator);
 
         for &(k, v) in data.iter() {
             builder.add(k, v);
@@ -394,7 +400,7 @@ mod tests {
         };
 
         let data = get_data();
-        let mut builder = BlockBuilder::new(o);
+        let mut builder = BlockBuilder::new(o, StandardComparator);
 
         for &(k, v) in data.iter() {
             builder.add(k, v);
@@ -430,7 +436,7 @@ mod tests {
         };
 
         let data = get_data();
-        let mut builder = BlockBuilder::new(o);
+        let mut builder = BlockBuilder::new(o, StandardComparator);
 
         for &(k, v) in data.iter() {
             builder.add(k, v);
