@@ -10,7 +10,7 @@ mod memtable;
 mod options;
 mod skipmap;
 mod snapshot;
-mod table;
+mod table_builder;
 mod types;
 mod write_batch;
 
