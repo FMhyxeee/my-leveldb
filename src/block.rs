@@ -334,6 +334,8 @@ impl<C: Comparator> BlockBuilder<C> {
 
 #[cfg(test)]
 mod tests {
+    use core::panic;
+
     use crate::{
         block::Block,
         options::Options,
@@ -376,6 +378,25 @@ mod tests {
         // println!("{:?}", block);
 
         assert_eq!(block.len(), 149)
+    }
+
+    #[test]
+    fn test_empty_block() {
+        let o = Options {
+            block_restart_interval: 3,
+            ..Default::default()
+        };
+
+        let builder = BlockBuilder::new(o, StandardComparator);
+        let blockc = builder.finish();
+        assert_eq!(blockc.len(), 8);
+        assert_eq!(blockc, vec![0, 0, 0, 0, 1, 0, 0, 0]);
+
+        let block = Block::new(blockc);
+        let mut block_iter = block.iter();
+        if block_iter.next().is_some() {
+            panic!("Empty block should not have any entries");
+        }
     }
 
     #[test]
