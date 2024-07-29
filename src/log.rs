@@ -78,10 +78,12 @@ impl<W: Write> LogWriter<W> {
     fn emit_record(&mut self, t: RecordType, data: &[u8], len: usize) -> io::Result<usize> {
         assert!(len < 256 * 256);
 
-        let mut combined_data = vec![t as u8];
-        combined_data.extend_from_slice(&data[0..len]);
+        let mut digest = self.crc_alg.digest();
 
-        let chksum = self.crc_alg.checksum(&combined_data);
+        digest.update(&[t as u8]);
+        digest.update(&data[0..len]);
+
+        let chksum = digest.finalize();
 
         let mut s = 0;
         s += self.dst.write(&chksum.encode_fixed_vec())?;
