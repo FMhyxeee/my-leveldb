@@ -198,9 +198,18 @@ impl<'a, C: 'a + Comparator> Iterator for MemtableIterator<'a, C> {
 }
 
 impl<'a, C: 'a + Comparator> LdbIterator<'a> for MemtableIterator<'a, C> {
+    fn seek(&mut self, to: &[u8]) {
+        self.skipmapiter.seek(LookupKey::new(to, 0).memtable_key());
+    }
+
+    fn reset(&mut self) {
+        self.skipmapiter.reset();
+    }
+
     fn valid(&self) -> bool {
         self.skipmapiter.valid()
     }
+
     fn current(&self) -> Self::Item {
         assert!(self.valid());
 
@@ -216,9 +225,7 @@ impl<'a, C: 'a + Comparator> LdbIterator<'a> for MemtableIterator<'a, C> {
             panic!("should not happen");
         }
     }
-    fn seek(&mut self, to: &[u8]) {
-        self.skipmapiter.seek(LookupKey::new(to, 0).memtable_key());
-    }
+
     fn prev(&mut self) -> Option<Self::Item> {
         self.skipmapiter.prev().and_then(|(k, _)| {
             let (keylen, keyoff, tag, vallen, valoff) = MemTable::<C>::parse_memtable_key(k);

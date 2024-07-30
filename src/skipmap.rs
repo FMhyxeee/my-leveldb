@@ -272,9 +272,15 @@ impl<'a, C: Comparator> LdbIterator<'a> for SkipMapIter<'a, C> {
         let node = self.map.get_greater_or_equal(key);
         self.current = unsafe { transmute_copy(&node) }
     }
+
+    fn reset(&mut self) {
+        self.current = &*self.map.head;
+    }
+
     fn valid(&self) -> bool {
         unsafe { !(*self.current).key.is_empty() }
     }
+
     fn current(&self) -> Self::Item {
         assert!(self.valid());
         unsafe { (&(*self.current).key, &(*self.current).value) }
