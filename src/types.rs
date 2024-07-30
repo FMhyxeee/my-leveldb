@@ -17,11 +17,11 @@ pub enum Status {
 
 /// Trait used to influnence how SkipMap determines the order of elements. Use StandardComparator
 /// for the normal implementation using numerical comparison.
-pub trait Comparator: Copy {
+pub trait Comparator: Copy + Default {
     fn cmp(a: &[u8], b: &[u8]) -> std::cmp::Ordering;
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct StandardComparator;
 
 impl Comparator for StandardComparator {
@@ -39,7 +39,7 @@ pub struct Range<'a> {
 /// This works because the iterators used are stateful and keep the last returned element.
 ///
 /// Note: Implementing types are expected to hold `!valid()` before the first call to `next()`.
-pub trait LdbIterator<'a>: Iterator {
+pub trait LdbIterator: Iterator {
     // We're emulating LevelDB's Slice type here using actual slices with the lifetime of the
     // iterator. The lifetime of the iterator is usually the one of the backing storage (Block,
     // MemTable, SkipMap...)
@@ -47,12 +47,24 @@ pub trait LdbIterator<'a>: Iterator {
 
     /// Seek the iterator to `key` or the next bigger key.
     fn seek(&mut self, key: &[u8]);
-    /// Resets the iterator to be `!valid()` again.
+    /// Resets the iterator to be `!valid()` again (before first element)
     fn reset(&mut self);
     /// Returns true if `current()` would return a valid item.
     fn valid(&self) -> bool;
-    /// Return the current item. Panic if `!valid()`.
-    fn current(&self) -> Self::Item;
+    /// Return the current item.
+    fn current(&self) -> Option<Self::Item>;
     /// Go to the previous item.
     fn prev(&mut self) -> Option<Self::Item>;
+
+    /// You should override this with a more efficient solution.
+    #[allow(clippy::while_let_on_iterator)]
+    fn seek_to_last(&mut self) {
+        self.reset();
+        while let Some(_) = self.next() {}
+    }
+
+    fn seek_to_first(&mut self) {
+        self.reset();
+        self.next();
+    }
 }

@@ -267,7 +267,7 @@ impl<'a, C: Comparator + 'a> Iterator for SkipMapIter<'a, C> {
     }
 }
 
-impl<'a, C: Comparator> LdbIterator<'a> for SkipMapIter<'a, C> {
+impl<'a, C: Comparator> LdbIterator for SkipMapIter<'a, C> {
     fn seek(&mut self, key: &[u8]) {
         let node = self.map.get_greater_or_equal(key);
         self.current = unsafe { transmute_copy(&node) }
@@ -281,18 +281,27 @@ impl<'a, C: Comparator> LdbIterator<'a> for SkipMapIter<'a, C> {
         unsafe { !(*self.current).key.is_empty() }
     }
 
-    fn current(&self) -> Self::Item {
-        assert!(self.valid());
-        unsafe { (&(*self.current).key, &(*self.current).value) }
+    fn current(&self) -> Option<Self::Item> {
+        if self.valid() {
+            Some((unsafe { &(*self.current).key }, unsafe {
+                &(*self.current).value
+            }))
+        } else {
+            None
+        }
     }
 
     fn prev(&mut self) -> Option<Self::Item> {
         // Going after the original Implementation here; we just seek to the node before current().
-        let prev = self.map.get_next_smaller(self.current().0);
-        self.current = prev;
+        if let Some(current) = self.current() {
+            let prev = self.map.get_next_smaller(current.0);
+            self.current = unsafe { transmute_copy(&prev) };
 
-        if !prev.key.is_empty() {
-            Some((&prev.key, &prev.value))
+            if !prev.key.is_empty() {
+                Some((prev.key.as_ref(), prev.value.as_ref()))
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -300,10 +309,10 @@ impl<'a, C: Comparator> LdbIterator<'a> for SkipMapIter<'a, C> {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
 
-    fn make_skipmap() -> SkipMap<StandardComparator> {
+    pub fn make_skipmap() -> SkipMap<StandardComparator> {
         let mut skm = SkipMap::new();
         let keys = vec![
             b"aba", b"abb", b"abc", b"abd", b"abe", b"abf", b"abg", b"abh", b"abi", b"abj", b"abk",
@@ -393,11 +402,17 @@ mod tests {
         iter.next();
         assert!(iter.valid());
         iter.seek(b"abz");
-        assert_eq!(iter.current(), ("abz".as_bytes(), "def".as_bytes()));
+        assert_eq!(
+            iter.current().unwrap(),
+            ("abz".as_bytes(), "def".as_bytes())
+        );
 
         // go back to beginning
         iter.seek(b"aba");
-        assert_eq!(iter.current(), ("aba".as_bytes(), "def".as_bytes()));
+        assert_eq!(
+            iter.current().unwrap(),
+            ("aba".as_bytes(), "def".as_bytes())
+        );
 
         iter.seek(b"");
         assert!(iter.valid());
@@ -432,6 +447,9 @@ mod tests {
         assert!(!iter.valid());
         iter.seek(b"abc");
         iter.prev();
-        assert_eq!(iter.current(), ("abb".as_bytes(), "def".as_bytes()));
+        assert_eq!(
+            iter.current().unwrap(),
+            ("abb".as_bytes(), "def".as_bytes())
+        );
     }
 }
