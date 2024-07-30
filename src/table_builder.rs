@@ -143,6 +143,10 @@ impl<'a, C: Comparator, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, C,
         }
     }
 
+    pub fn entries(&self) -> usize {
+        self.num_entries
+    }
+
     pub fn add(&mut self, key: &'a [u8], val: &'a [u8]) {
         assert!(self.data_block.is_some());
         assert!(
@@ -304,7 +308,6 @@ mod tests {
                 block_restart_interval: 3,
                 ..Default::default()
             };
-
             let mut b = TableBuilder::new(opt, StandardComparator, &mut d, BloomPolicy::new(4));
 
             let data = [
@@ -320,6 +323,29 @@ mod tests {
 
             b.finish();
         }
-        println!("{:?}", d);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bad_input() {
+        let mut d = Vec::with_capacity(512);
+        let opt = Options {
+            block_restart_interval: 3,
+            ..Default::default()
+        };
+
+        let mut b = TableBuilder::new(opt, StandardComparator, &mut d, BloomPolicy::new(4));
+
+        // Test two equal consecutive keys
+        let data = [
+            ("abc", "def"),
+            ("abc", "dee"),
+            ("bcd", "asa"),
+            ("bsr", "a00"),
+        ];
+
+        for &(k, v) in data.iter() {
+            b.add(k.as_bytes(), v.as_bytes());
+        }
     }
 }
