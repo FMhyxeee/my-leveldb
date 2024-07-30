@@ -307,8 +307,6 @@ mod tests {
 
         for k in keys {
             skm.insert(k, b"def");
-            println!("---------------------------------");
-            skm.dbg_print();
         }
         skm
     }
@@ -357,6 +355,16 @@ mod tests {
         }
         assert_eq!(i, 0);
         assert!(!skm.iter().valid());
+    }
+
+    #[test]
+    fn test_iterator_init() {
+        let skm = make_skipmap();
+        let mut iter = skm.iter();
+
+        assert!(!iter.valid());
+        iter.next();
+        assert!(iter.valid());
     }
 
     #[test]

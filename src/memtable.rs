@@ -254,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lookupkey() {
+    fn test_memtable_lookupkey() {
         use integer_encoding::VarInt;
 
         let lk1 = LookupKey::new(b"abcde", 123);
@@ -273,7 +273,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add() {
+    fn test_memtable_add() {
         let mut mt = MemTable::new();
         mt.add(123, ValueType::TypeValue, b"abc", b"123");
 
@@ -284,7 +284,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_get() {
+    fn test_memtable_add_get() {
         let mt = get_memtable();
 
         if let Result::Ok(v) = mt.get(&LookupKey::new(b"abc", 120)) {
@@ -306,11 +306,19 @@ mod tests {
     }
 
     #[test]
-    fn test_memtable_iterator() {
+    fn test_memtable_iterator_init() {
         let mt = get_memtable();
         let mut iter = mt.iter();
 
         assert!(!iter.valid());
+        iter.next();
+        assert!(iter.valid());
+    }
+
+    #[test]
+    fn test_memtable_iterator() {
+        let mt = get_memtable();
+        let mut iter = mt.iter();
 
         iter.next();
         assert!(iter.valid());
@@ -344,7 +352,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_memtable_key() {
+    fn test_memtable_parse_key() {
         let key = vec![3, 1, 2, 3, 1, 123, 0, 0, 0, 0, 0, 0, 3, 4, 5, 6];
         let (keylen, keyoff, tag, vallen, valoff) =
             MemTable::<StandardComparator>::parse_memtable_key(&key);
