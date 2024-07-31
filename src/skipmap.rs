@@ -77,7 +77,7 @@ impl<C: Comparator> SkipMap<C> {
         n.key.starts_with(key)
     }
 
-    //Return the node with key or the next greater one.
+    /// Return the node with key or the next greater one.
     fn get_greater_or_equal(&self, key: &[u8]) -> &Node {
         // Start at the highest skip link of the head node, and work down from there
         let mut current: *const Node = unsafe { transmute_copy(&self.head.as_ref()) };
@@ -225,7 +225,7 @@ impl<C: Comparator> SkipMap<C> {
         }
     }
 
-    // Runs through the skipmap and prints everything including addresses
+    /// Runs through the skipmap and prints everything including addresses
     fn dbg_print(&self) {
         let mut current: *const Node = &*self.head;
         loop {
