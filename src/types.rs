@@ -56,13 +56,6 @@ pub trait LdbIterator: Iterator {
     /// Go to the previous item.
     fn prev(&mut self) -> Option<Self::Item>;
 
-    /// You should override this with a more efficient solution.
-    #[allow(clippy::while_let_on_iterator)]
-    fn seek_to_last(&mut self) {
-        self.reset();
-        while let Some(_) = self.next() {}
-    }
-
     fn seek_to_first(&mut self) {
         self.reset();
         self.next();
