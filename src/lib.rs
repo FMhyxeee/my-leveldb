@@ -14,4 +14,6 @@ mod table_builder;
 mod types;
 mod write_batch;
 
+mod test_util;
+
 pub use types::Comparator;
