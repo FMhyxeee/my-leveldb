@@ -305,15 +305,23 @@ mod tests {
             panic!("not found");
         }
 
-        if let Result::Ok(v) = mt.get(&LookupKey::new(b"abe", 122)) {
-            assert_eq!(v, "125".as_bytes().to_vec());
+        // Smaller sequence number than actual one still produces result
+        if let Result::Ok(v) = mt.get(&LookupKey::new(b"abc", 119)) {
+            assert_eq!(v, "123".as_bytes().to_vec());
         } else {
             panic!("not found");
         }
 
+        // Bigger sequence number doesn't
         if let Result::Ok(v) = mt.get(&LookupKey::new(b"abc", 124)) {
             println!("{:?}", v);
             panic!("found");
+        }
+
+        if let Result::Ok(v) = mt.get(&LookupKey::new(b"abe", 122)) {
+            assert_eq!(v, "125".as_bytes().to_vec());
+        } else {
+            panic!("not found");
         }
     }
 

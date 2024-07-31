@@ -1,4 +1,7 @@
-use std::mem::{replace, size_of, transmute_copy};
+use std::{
+    cmp::Ordering,
+    mem::{replace, size_of, transmute_copy},
+};
 
 use rand::{
     rngs::{StdRng, ThreadRng},
@@ -73,12 +76,16 @@ impl<C: Comparator> SkipMap<C> {
     }
 
     pub fn contains(&self, key: &[u8]) -> bool {
-        let n = self.get_greater_or_equal(key);
-        n.key.starts_with(key)
+        if let Some(n) = self.get_greater_or_equal(key) {
+            n.key.starts_with(key)
+        } else {
+            false
+        }
     }
 
     /// Return the node with key or the next greater one.
-    fn get_greater_or_equal(&self, key: &[u8]) -> &Node {
+    /// Returns None if the given key lies past the greatest key in the table.
+    fn get_greater_or_equal(&self, key: &[u8]) -> Option<&Node> {
         // Start at the highest skip link of the head node, and work down from there
         let mut current: *const Node = unsafe { transmute_copy(&self.head.as_ref()) };
         let mut level = self.head.skips.len() - 1;
@@ -92,11 +99,11 @@ impl<C: Comparator> SkipMap<C> {
                             continue;
                         }
                         std::cmp::Ordering::Equal => {
-                            return &*next;
+                            return Some(&*next);
                         }
                         std::cmp::Ordering::Greater => {
                             if level == 0 {
-                                return &(*next);
+                                return Some(&(*next));
                             }
                         }
                     }
@@ -108,12 +115,18 @@ impl<C: Comparator> SkipMap<C> {
             }
             level -= 1;
         }
-        unsafe { &*current }
+        unsafe {
+            if current.is_null() || C::cmp(&(*current).key, key) == Ordering::Less {
+                None
+            } else {
+                Some(&*current)
+            }
+        }
     }
 
-    /// Finds the node immediately before the node with key
-    fn get_next_smaller(&self, key: &[u8]) -> &Node {
-        self.dbg_print();
+    /// Finds the node immediately before the node with key.
+    /// Returns None if no smaller key was found.
+    fn get_next_smaller(&self, key: &[u8]) -> Option<&Node> {
         // Start at the highest skip link of the head node, and work down from there
         let mut current: *const Node = unsafe { transmute_copy(&self.head.as_ref()) };
         let mut level = self.head.skips.len() - 1;
@@ -121,16 +134,9 @@ impl<C: Comparator> SkipMap<C> {
         loop {
             unsafe {
                 if let Some(next) = (*current).skips[level] {
-                    match C::cmp(&(*next).key, key) {
-                        std::cmp::Ordering::Less => {
-                            current = next;
-                            continue;
-                        }
-                        _ => {
-                            if level == 0 {
-                                return &*current;
-                            }
-                        }
+                    if C::cmp(&(*next).key, key) == Ordering::Less {
+                        current = next;
+                        continue;
                     }
                 }
             }
@@ -140,7 +146,17 @@ impl<C: Comparator> SkipMap<C> {
             }
             level -= 1;
         }
-        unsafe { &*current }
+
+        unsafe {
+            if current.is_null()
+                || (*current).key.is_empty()
+                || C::cmp(&(*current).key, key) != Ordering::Less
+            {
+                None
+            } else {
+                Some(&*current)
+            }
+        }
     }
 
     pub fn insert(&mut self, key: &[u8], value: &[u8]) {
@@ -182,7 +198,6 @@ impl<C: Comparator> SkipMap<C> {
                 level -= 1;
             }
         }
-        print!("prevs is {:?}", prevs);
 
         // Construct the new node
         let mut new = Box::new(Node {
@@ -269,8 +284,11 @@ impl<'a, C: Comparator + 'a> Iterator for SkipMapIter<'a, C> {
 
 impl<'a, C: Comparator> LdbIterator for SkipMapIter<'a, C> {
     fn seek(&mut self, key: &[u8]) {
-        let node = self.map.get_greater_or_equal(key);
-        self.current = unsafe { transmute_copy(&node) }
+        if let Some(node) = self.map.get_greater_or_equal(key) {
+            self.current = node;
+        } else {
+            self.reset();
+        }
     }
 
     fn reset(&mut self) {
@@ -294,17 +312,17 @@ impl<'a, C: Comparator> LdbIterator for SkipMapIter<'a, C> {
     fn prev(&mut self) -> Option<Self::Item> {
         // Going after the original Implementation here; we just seek to the node before current().
         if let Some(current) = self.current() {
-            let prev = self.map.get_next_smaller(current.0);
-            self.current = unsafe { transmute_copy(&prev) };
+            if let Some(prev) = self.map.get_next_smaller(current.0) {
+                self.current = prev;
 
-            if !prev.key.is_empty() {
-                Some((prev.key.as_ref(), prev.value.as_ref()))
-            } else {
-                None
+                if !prev.key.is_empty() {
+                    return Some(unsafe { (&(*self.current).key, &(*self.current).value) });
+                }
             }
-        } else {
-            None
         }
+
+        self.reset();
+        None
     }
 }
 
@@ -352,13 +370,14 @@ pub mod tests {
     #[test]
     fn test_find() {
         let skm = make_skipmap();
-        assert_eq!(skm.get_greater_or_equal(b"abf").key, b"abf");
-        assert_eq!(skm.get_greater_or_equal(b"ab{").key, b"abz");
-        assert_eq!(skm.get_greater_or_equal(b"aaa").key, b"aba");
-        assert_eq!(skm.get_greater_or_equal(b"ab").key, b"aba");
-        assert_eq!(skm.get_greater_or_equal(b"abc").key, b"abc");
-        assert_eq!(skm.get_next_smaller(b"abd").key, b"abc");
-        assert_eq!(skm.get_next_smaller(b"ab{").key, b"abz");
+        assert_eq!(skm.get_greater_or_equal(b"abf").unwrap().key, b"abf");
+        assert_eq!(skm.get_greater_or_equal(b"aaa").unwrap().key, b"aba");
+        assert_eq!(skm.get_greater_or_equal(b"ab").unwrap().key, b"aba");
+        assert_eq!(skm.get_greater_or_equal(b"abc").unwrap().key, b"abc");
+        assert!(skm.get_greater_or_equal(b"ab{").is_none());
+        assert_eq!(skm.get_next_smaller(b"abd").unwrap().key, b"abc");
+        assert_eq!(skm.get_next_smaller(b"ab{").unwrap().key, b"abz");
+        assert!(skm.get_next_smaller(b"aaa").is_none());
     }
 
     #[test]
@@ -380,6 +399,13 @@ pub mod tests {
         assert!(!iter.valid());
         iter.next();
         assert!(iter.valid());
+        iter.reset();
+        assert!(!iter.valid());
+
+        iter.next();
+        assert!(iter.valid());
+        iter.prev();
+        assert!(!iter.valid());
     }
 
     #[test]
@@ -416,6 +442,9 @@ pub mod tests {
 
         iter.seek(b"");
         assert!(iter.valid());
+        iter.prev();
+        assert!(!iter.valid());
+
         loop {
             if iter.next().is_some() {
                 continue;
