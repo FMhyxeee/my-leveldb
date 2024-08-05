@@ -33,7 +33,7 @@ pub struct Table<R: Read + Seek, C: Comparator, FP: FilterPolicy> {
     file_size: usize,
 
     opt: Options,
-    c: C,
+    cmp: C,
 
     footer: TableFooter,
     indexblock: Block<C>,
@@ -44,8 +44,8 @@ impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
     pub fn new(mut file: R, size: usize, cmp: C, fp: FP, opt: Options) -> Result<Table<R, C, FP>> {
         let footer = Table::<R, C, FP>::read_footer(&mut file, size)?;
 
-        let indexblock = Table::<R, C, FP>::read_block(&mut file, &footer.index)?;
-        let metaindexblock = Table::<R, C, FP>::read_block(&mut file, &footer.metaindex)?;
+        let indexblock = Table::<R, C, FP>::read_block(&cmp, &mut file, &footer.index)?;
+        let metaindexblock = Table::<R, C, FP>::read_block(&cmp, &mut file, &footer.metaindex)?;
 
         let mut filter_block_reader = None;
         let mut filter_block_location = BlockHandle::new(0, 0);
@@ -60,14 +60,15 @@ impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
         }
 
         if filter_block_location.size() > 0 {
-            let filter_block = Table::<R, C, FP>::read_block(&mut file, &filter_block_location)?;
+            let filter_block =
+                Table::<R, C, FP>::read_block(&cmp, &mut file, &filter_block_location)?;
             filter_block_reader = Some(FilterBlockReader::new(fp, filter_block.obtain()));
         }
 
         Ok(Table {
             file,
             file_size: size,
-            c: cmp,
+            cmp,
             opt,
             footer,
             filters: filter_block_reader,
@@ -86,11 +87,11 @@ impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
     }
 
     /// Reads a block at location.
-    fn read_block(f: &mut R, location: &BlockHandle) -> Result<Block<C>> {
+    fn read_block(cmp: &C, f: &mut R, location: &BlockHandle) -> Result<Block<C>> {
         f.seek(SeekFrom::Start(location.offset() as u64))?;
         let mut buf = vec![0; location.size()];
         f.read_exact(&mut buf[0..location.size()])?;
-        Ok(Block::new_with_cmp(buf, C::default()))
+        Ok(Block::new_with_cmp(buf, *cmp))
     }
 
     /// Returns the offset of the block that contains `key`.

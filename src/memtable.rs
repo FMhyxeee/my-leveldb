@@ -145,7 +145,9 @@ impl<C: Comparator> MemTable<C> {
             let (lkeylen, lkeyoff, _, _, _) = Self::parse_memtable_key(key.memtable_key());
             let (fkeylen, fkeyoff, tag, vallen, valoff) = Self::parse_memtable_key(foundkey);
 
-            if C::cmp(
+            let cmp = StandardComparator;
+
+            if cmp.cmp(
                 &key.memtable_key()[lkeyoff..lkeyoff + lkeylen],
                 &foundkey[fkeyoff..fkeyoff + fkeylen],
             ) == Ordering::Equal
