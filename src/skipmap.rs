@@ -428,6 +428,7 @@ pub mod tests {
 
         iter.next();
         assert!(iter.valid());
+        assert_eq!(iter.current().unwrap().0, "aba".as_bytes());
         iter.seek(b"abz");
         assert_eq!(
             iter.current().unwrap(),
