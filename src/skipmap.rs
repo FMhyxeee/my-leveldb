@@ -93,6 +93,7 @@ impl<C: Comparator> SkipMap<C> {
         loop {
             unsafe {
                 if let Some(next) = (*current).skips[level] {
+                    println!("Comparing {:?} and {:?}", (*next).key, key);
                     match self.cmp.cmp(&(*next).key, key) {
                         std::cmp::Ordering::Less => {
                             current = next;
