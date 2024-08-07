@@ -26,8 +26,9 @@ pub type BlockContents = Vec<u8>;
 /// A RESTART is a fixed u32 pointing to the beginning of an ENTRY.
 ///
 /// N_RESTARTS contains the number of restarts.
+#[derive(Debug)]
 pub struct BlockIter<C: Comparator> {
-    block: Rc<BlockContents>,
+    pub block: Rc<BlockContents>,
     cmp: C,
     // start of next entry
     offset: usize,
@@ -62,8 +63,9 @@ impl<C: Comparator> Clone for BlockIter<C> {
 impl<C: Comparator> BlockIter<C> {
     pub fn new(contents: BlockContents, cmp: C) -> BlockIter<C> {
         assert!(contents.len() > 4);
+        println!("blockcontetn is {:?}", contents);
         let restarts = u32::decode_fixed(&contents[contents.len() - 4..]).unwrap() as usize;
-        let restart_offset = contents.len() - 4 * (restarts + 1);
+        let restart_offset = contents.len() - 4 * restarts - 4;
 
         BlockIter {
             block: Rc::new(contents),
@@ -83,7 +85,7 @@ impl<C: Comparator> BlockIter<C> {
     }
 
     fn number_restarts(&self) -> usize {
-        ((self.block.len() - self.restarts_off) / 4) - 1
+        u32::decode_fixed(&self.block[self.block.len() - 4..]).unwrap() as usize
     }
 
     fn get_restart_point(&self, ix: usize) -> usize {
@@ -152,7 +154,11 @@ impl<C: Comparator> LdbIterator for BlockIter<C> {
         self.reset();
 
         let mut left = 0;
-        let mut right = self.number_restarts() - 1;
+        let mut right = if self.number_restarts() == 0 {
+            0
+        } else {
+            self.number_restarts() - 1
+        };
         let cmp = self.cmp;
 
         // Do a binary search over the restart points.

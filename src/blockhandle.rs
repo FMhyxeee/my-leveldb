@@ -1,5 +1,6 @@
 use integer_encoding::VarInt;
 
+#[derive(Debug)]
 pub struct BlockHandle {
     offset: usize,
     size: usize,
