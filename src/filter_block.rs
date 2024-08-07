@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use integer_encoding::FixedInt;
 
 use crate::filter::FilterPolicy;
@@ -98,14 +100,18 @@ impl<'a, FP: FilterPolicy> FilterBlockBuilder<'a, FP> {
 
 pub struct FilterBlockReader<FP: FilterPolicy> {
     policy: FP,
-    block: Vec<u8>,
+    block: Rc<Vec<u8>>,
 
     offsets_offset: usize,
     filter_base_lg2: u32,
 }
 
 impl<FP: FilterPolicy> FilterBlockReader<FP> {
-    pub fn new(pol: FP, data: Vec<u8>) -> FilterBlockReader<FP> {
+    pub fn new_owned(pol: FP, data: Vec<u8>) -> FilterBlockReader<FP> {
+        FilterBlockReader::new(pol, Rc::new(data))
+    }
+
+    pub fn new(pol: FP, data: Rc<Vec<u8>>) -> FilterBlockReader<FP> {
         assert!(data.len() >= 5);
 
         let fbase = data[data.len() - 1] as u32;
@@ -206,7 +212,7 @@ mod tests {
     #[test]
     fn test_filter_block_build_read() {
         let result = produce_filter_block();
-        let reader = FilterBlockReader::new(BloomPolicy::new(32), result);
+        let reader = FilterBlockReader::new_owned(BloomPolicy::new(32), result);
 
         assert_eq!(
             reader.offset_of(get_filter_index(5121, FILTER_BASE_LOG2)),

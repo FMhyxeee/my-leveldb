@@ -1,8 +1,9 @@
 use std::cmp::Ordering;
+use std::rc::Rc;
 
 use crate::options::Options;
 use crate::types::LdbIterator;
-use crate::{types::StandardComparator, Comparator};
+use crate::Comparator;
 
 use integer_encoding::FixedInt;
 use integer_encoding::VarInt;
@@ -25,60 +26,13 @@ pub type BlockContents = Vec<u8>;
 /// A RESTART is a fixed u32 pointing to the beginning of an ENTRY.
 ///
 /// N_RESTARTS contains the number of restarts.
-pub struct Block<C: Comparator> {
-    data: BlockContents,
-    restarts_off: usize,
+pub struct BlockIter<C: Comparator> {
+    block: Rc<BlockContents>,
     cmp: C,
-}
-
-impl Block<StandardComparator> {
-    pub fn new(contents: BlockContents) -> Block<StandardComparator> {
-        Self::new_with_cmp(contents, StandardComparator)
-    }
-}
-
-impl<C: Comparator> Block<C> {
-    pub fn new_with_cmp(contents: BlockContents, cmp: C) -> Block<C> {
-        assert!(contents.len() > 4);
-        let restarts = u32::decode_fixed(&contents[contents.len() - 4..]).unwrap() as usize;
-        let restart_offset = contents.len() - 4 * (restarts + 1);
-
-        Block {
-            data: contents,
-            restarts_off: restart_offset,
-            cmp,
-        }
-    }
-
-    pub fn obtain(self) -> Vec<u8> {
-        self.data
-    }
-
-    fn number_restarts(&self) -> usize {
-        ((self.data.len() - self.restarts_off) / 4) - 1
-    }
-
-    fn get_restart_point(&self, ix: usize) -> usize {
-        let restart = self.restarts_off + 4 * ix;
-        u32::decode_fixed(&self.data[restart..restart + 4]).unwrap() as usize
-    }
-
-    pub fn iter(&self) -> BlockIter<C> {
-        BlockIter {
-            block: self,
-            current_restart_ix: 0,
-            current_entry_offset: 0,
-            offset: 0,
-            key: Vec::new(),
-            val_offset: 0,
-        }
-    }
-}
-
-pub struct BlockIter<'a, C: 'a + Comparator> {
-    block: &'a Block<C>,
     // start of next entry
     offset: usize,
+    // offset of restarts area
+    restarts_off: usize,
     // start of current entry
     current_entry_offset: usize,
     // tracks the last restart we encountered
@@ -89,19 +43,67 @@ pub struct BlockIter<'a, C: 'a + Comparator> {
     val_offset: usize,
 }
 
-impl<'a, C: Comparator> BlockIter<'a, C> {
+impl<C: Comparator> Clone for BlockIter<C> {
+    fn clone(&self) -> Self {
+        BlockIter {
+            block: self.block.clone(),
+            cmp: self.cmp,
+            offset: self.offset,
+            restarts_off: self.restarts_off,
+            current_entry_offset: self.current_entry_offset,
+            current_restart_ix: self.current_restart_ix,
+
+            key: Vec::new(),
+            val_offset: 0,
+        }
+    }
+}
+
+impl<C: Comparator> BlockIter<C> {
+    pub fn new(contents: BlockContents, cmp: C) -> BlockIter<C> {
+        assert!(contents.len() > 4);
+        let restarts = u32::decode_fixed(&contents[contents.len() - 4..]).unwrap() as usize;
+        let restart_offset = contents.len() - 4 * (restarts + 1);
+
+        BlockIter {
+            block: Rc::new(contents),
+            cmp,
+            offset: 0,
+            restarts_off: restart_offset,
+            current_entry_offset: 0,
+            current_restart_ix: 0,
+
+            key: Vec::new(),
+            val_offset: 0,
+        }
+    }
+
+    pub fn obtain(self) -> Rc<Vec<u8>> {
+        self.block.clone()
+    }
+
+    fn number_restarts(&self) -> usize {
+        ((self.block.len() - self.restarts_off) / 4) - 1
+    }
+
+    fn get_restart_point(&self, ix: usize) -> usize {
+        let restart = self.restarts_off + 4 * ix;
+        u32::decode_fixed(&self.block[restart..restart + 4]).unwrap() as usize
+    }
+}
+
+impl<C: Comparator> BlockIter<C> {
     // Returns SHARED, NON_SHARED and VALSIZE from the current position. Advances self.offset.
     fn parse_entry(&mut self) -> (usize, usize, usize) {
         let mut i = 0;
-        let (shared, sharedlen) = usize::decode_var(&self.block.data[self.offset..]).unwrap();
+        let (shared, sharedlen) = usize::decode_var(&self.block[self.offset..]).unwrap();
         i += sharedlen;
 
         let (non_shared, non_sharedlen) =
-            usize::decode_var(&self.block.data[self.offset + i..]).unwrap();
+            usize::decode_var(&self.block[self.offset + i..]).unwrap();
         i += non_sharedlen;
 
-        let (valsize, valsize_len) =
-            usize::decode_var(&self.block.data[self.offset + i..]).unwrap();
+        let (valsize, valsize_len) = usize::decode_var(&self.block[self.offset + i..]).unwrap();
         i += valsize_len;
 
         self.offset += i;
@@ -113,17 +115,17 @@ impl<'a, C: Comparator> BlockIter<'a, C> {
     fn assemble_key(&mut self, shared: usize, non_shared: usize) {
         self.key.resize(shared, 0);
         self.key
-            .extend_from_slice(&self.block.data[self.offset..self.offset + non_shared]);
+            .extend_from_slice(&self.block[self.offset..self.offset + non_shared]);
     }
 }
 
-impl<'a, C: Comparator> Iterator for BlockIter<'a, C> {
-    type Item = (Vec<u8>, &'a [u8]);
+impl<C: Comparator> Iterator for BlockIter<C> {
+    type Item = (Vec<u8>, Vec<u8>);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.current_entry_offset = self.offset;
 
-        if self.current_entry_offset >= self.block.restarts_off {
+        if self.current_entry_offset >= self.restarts_off {
             return None;
         }
         let (shared, non_shared, valsize) = self.parse_entry();
@@ -132,37 +134,38 @@ impl<'a, C: Comparator> Iterator for BlockIter<'a, C> {
         self.val_offset = self.offset + non_shared;
         self.offset = self.val_offset + valsize;
 
-        let num_restarts = self.block.number_restarts();
+        let num_restarts = self.number_restarts();
         while self.current_restart_ix + 1 < num_restarts
-            && self.block.get_restart_point(self.current_restart_ix + 1) < self.current_entry_offset
+            && self.get_restart_point(self.current_restart_ix + 1) < self.current_entry_offset
         {
             self.current_restart_ix += 1;
         }
         Some((
             self.key.clone(),
-            &self.block.data[self.val_offset..self.val_offset + valsize],
+            Vec::from(&self.block[self.val_offset..self.val_offset + valsize]),
         ))
     }
 }
 
-impl<'a, C: 'a + Comparator> LdbIterator for BlockIter<'a, C> {
+impl<C: Comparator> LdbIterator for BlockIter<C> {
     fn seek(&mut self, to: &[u8]) {
         self.reset();
 
         let mut left = 0;
-        let mut right = self.block.number_restarts() - 1;
-        let cmp = self.block.cmp;
+        let mut right = self.number_restarts() - 1;
+        let cmp = self.cmp;
 
+        // Do a binary search over the restart points.
         while left < right {
             let middle = (left + right + 1) / 2;
 
-            self.offset = self.block.get_restart_point(middle);
+            self.offset = self.get_restart_point(middle);
             let (shared, non_shared, _) = self.parse_entry();
 
             // At a restart, the shared part is suppose to be 0.
             assert_eq!(shared, 0);
 
-            let cmp = cmp.cmp(to, &self.block.data[self.offset..self.offset + non_shared]);
+            let cmp = cmp.cmp(to, &self.block[self.offset..self.offset + non_shared]);
 
             if cmp == Ordering::Less {
                 right = middle - 1;
@@ -173,7 +176,7 @@ impl<'a, C: 'a + Comparator> LdbIterator for BlockIter<'a, C> {
 
         assert_eq!(left, right);
         self.current_restart_ix = left;
-        self.offset = self.block.get_restart_point(left);
+        self.offset = self.get_restart_point(left);
 
         // Linear search from here on
         for (k, _) in self.by_ref() {
@@ -191,14 +194,14 @@ impl<'a, C: 'a + Comparator> LdbIterator for BlockIter<'a, C> {
     }
 
     fn valid(&self) -> bool {
-        !self.key.is_empty() && self.val_offset > 0 && self.val_offset < self.block.restarts_off
+        !self.key.is_empty() && self.val_offset > 0 && self.val_offset < self.restarts_off
     }
 
     fn current(&self) -> Option<Self::Item> {
         if self.valid() {
             Some((
                 self.key.clone(),
-                &self.block.data[self.val_offset..self.offset],
+                Vec::from(&self.block[self.val_offset..self.offset]),
             ))
         } else {
             None
@@ -211,14 +214,15 @@ impl<'a, C: 'a + Comparator> LdbIterator for BlockIter<'a, C> {
 
         // At the beginning, can't go further back
         if current_offset == 0 {
+            self.reset();
             return None;
         }
 
-        while self.block.get_restart_point(self.current_restart_ix) >= current_offset {
+        while self.get_restart_point(self.current_restart_ix) >= current_offset {
             self.current_restart_ix -= 1;
         }
 
-        self.offset = self.block.get_restart_point(self.current_restart_ix);
+        self.offset = self.get_restart_point(self.current_restart_ix);
         assert!(self.offset < current_offset);
         let mut result;
 
@@ -345,7 +349,7 @@ mod tests {
     use core::panic;
 
     use crate::{
-        block::Block,
+        block::BlockIter,
         options::Options,
         types::{LdbIterator, StandardComparator},
     };
@@ -400,10 +404,10 @@ mod tests {
         assert_eq!(blockc.len(), 8);
         assert_eq!(blockc, vec![0, 0, 0, 0, 1, 0, 0, 0]);
 
-        let block = Block::new(blockc);
-        let mut block_iter = block.iter();
-        if block_iter.next().is_some() {
-            panic!("Empty block should not have any entries");
+        let mut block = BlockIter::new(blockc, StandardComparator);
+
+        if block.by_ref().next().is_some() {
+            panic!("Should not have any entries");
         }
     }
 
@@ -418,13 +422,13 @@ mod tests {
 
         let block_contents = builder.finish();
 
-        let block = Block::new(block_contents);
-        let block_iter = block.iter();
+        let block = BlockIter::new(block_contents, StandardComparator);
+
         let mut i = 0;
 
-        assert!(!block_iter.valid());
+        assert!(!block.valid());
 
-        for (k, v) in block_iter {
+        for (k, v) in block {
             assert_eq!(&k[..], data[i].0);
             assert_eq!(v, data[i].1);
             i += 1;
@@ -447,25 +451,24 @@ mod tests {
         }
 
         let block_contents = builder.finish();
-        let block = Block::new(block_contents);
-        let mut block_iter = block.iter();
+        let mut block = BlockIter::new(block_contents, StandardComparator);
 
-        assert!(!block_iter.valid());
+        assert!(!block.valid());
         assert_eq!(
-            block_iter.next(),
-            Some(("key1".as_bytes().to_vec(), "value1".as_bytes()))
+            block.next(),
+            Some(("key1".as_bytes().to_vec(), "value1".as_bytes().to_vec()))
         );
-        assert!(block_iter.valid());
-        block_iter.next();
-        assert!(block_iter.valid());
-        block_iter.prev();
-        assert!(block_iter.valid());
+        assert!(block.valid());
+        block.next();
+        assert!(block.valid());
+        block.prev();
+        assert!(block.valid());
         assert_eq!(
-            block_iter.current().unwrap(),
-            ("key1".as_bytes().to_vec(), "value1".as_bytes())
+            block.current().unwrap(),
+            ("key1".as_bytes().to_vec(), "value1".as_bytes().to_vec())
         );
-        block_iter.prev();
-        assert!(block_iter.valid());
+        block.prev();
+        assert!(!block.valid());
     }
 
     #[test]
@@ -484,21 +487,23 @@ mod tests {
 
         let block_contents = builder.finish();
 
-        let block = Block::new(block_contents);
-        let mut iter = block.iter();
+        let mut block = BlockIter::new(block_contents, StandardComparator);
 
-        iter.seek("prefix_key2".as_bytes());
-        assert!(iter.valid());
+        block.seek("prefix_key2".as_bytes());
+        assert!(block.valid());
         assert_eq!(
-            iter.current().unwrap(),
-            ("prefix_key2".as_bytes().to_vec(), "value".as_bytes())
+            block.current().unwrap(),
+            (
+                "prefix_key2".as_bytes().to_vec(),
+                "value".as_bytes().to_vec()
+            )
         );
 
-        iter.seek("key1".as_bytes());
-        assert!(iter.valid());
+        block.seek("key1".as_bytes());
+        assert!(block.valid());
         assert_eq!(
-            iter.current().unwrap(),
-            ("key1".as_bytes().to_vec(), "value1".as_bytes())
+            block.current().unwrap(),
+            ("key1".as_bytes().to_vec(), "value1".as_bytes().to_vec())
         );
     }
 }
