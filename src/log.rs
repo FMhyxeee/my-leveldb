@@ -201,7 +201,6 @@ mod tests {
 
         assert_eq!(lw.current_block_offset, data.len() + super::HEADER_SIZE);
         assert_eq!(&lw.dst[super::HEADER_SIZE..], data.as_slice());
-        println!("{:?}", lw.dst);
     }
 
     #[test]

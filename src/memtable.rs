@@ -76,11 +76,9 @@ impl<C: Comparator> MemTable<C> {
     pub fn get(&self, key: &LookupKey) -> Result<Vec<u8>, Status> {
         let mut iter = self.map.iter();
         iter.seek(key.memtable_key());
-        println!("key.memtable_key() {:?}", key.memtable_key());
 
         if let Some(e) = iter.current() {
             let foundkey = e.0;
-            println!("{:?}", foundkey);
 
             let (lkeylen, lkeyoff, _, _, _) = parse_memtable_key(key.memtable_key());
             let (fkeylen, fkeyoff, tag, vallen, valoff) = parse_memtable_key(foundkey);
@@ -233,21 +231,27 @@ mod tests {
 
     #[test]
     #[ignore]
+    // because of the cmp of the memtable key comparator
     fn test_memtable_add_get() {
         let mt = get_memtable();
 
-        // // Smaller sequence number dosn't find entry
-        // if let Result::Ok(v) = mt.get(&LookupKey::new("abc".as_bytes(), 110)) {
-        //     println!("{:?}", v);
-        //     panic!("found");
-        // }
+        // Smaller sequence number dosn't find entry
+        if let Result::Ok(v) = mt.get(&LookupKey::new("abc".as_bytes(), 110)) {
+            println!("{:?}", v);
+            panic!("found");
+        }
 
-        // // Bigger sequence number falls back to next smaller
-        // if let Result::Ok(v) = mt.get(&LookupKey::new("abc".as_bytes(), 116)) {
-        //     assert_eq!(v, "122".as_bytes());
-        // } else {
-        //     panic!("not found");
-        // }
+        if let Result::Ok(v) = mt.get(&LookupKey::new("abf".as_bytes(), 110)) {
+            eprintln!("{:?}", v);
+            panic!("found");
+        }
+
+        // Bigger sequence number falls back to next smaller
+        if let Result::Ok(v) = mt.get(&LookupKey::new("abc".as_bytes(), 116)) {
+            assert_eq!(v, "122".as_bytes());
+        } else {
+            panic!("not found");
+        }
 
         // // Bigger sequence number doesn't
         // if let Result::Ok(v) = mt.get(&LookupKey::new(b"abc", 124)) {
@@ -262,11 +266,11 @@ mod tests {
         //     panic!("not found");
         // }
 
-        if let Result::Ok(v) = mt.get(&LookupKey::new(b"abe", 122)) {
-            assert_eq!(v, "125".as_bytes().to_vec());
-        } else {
-            panic!("not found");
-        }
+        // if let Result::Ok(v) = mt.get(&LookupKey::new(b"abe", 122)) {
+        //     assert_eq!(v, "125".as_bytes().to_vec());
+        // } else {
+        //     panic!("not found");
+        // }
     }
 
     #[test]

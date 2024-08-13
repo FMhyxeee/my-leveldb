@@ -63,7 +63,6 @@ impl<C: Comparator> Clone for BlockIter<C> {
 impl<C: Comparator> BlockIter<C> {
     pub fn new(contents: BlockContents, cmp: C) -> BlockIter<C> {
         assert!(contents.len() > 4);
-        println!("blockcontetn is {:?}", contents);
         let restarts = u32::decode_fixed(&contents[contents.len() - 4..]).unwrap() as usize;
         let restart_offset = contents.len() - 4 * restarts - 4;
 
@@ -388,7 +387,6 @@ mod tests {
         for &(k, v) in get_data().iter() {
             builder.add(k, v);
             assert!(builder.counter <= 3);
-            // println!("{:?}", builder.counter);
             assert_eq!(builder.last_key(), k);
         }
 

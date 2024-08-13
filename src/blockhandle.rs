@@ -54,7 +54,6 @@ mod tests {
         let enc_sz = bh.encode_to(&mut dst[..]);
 
         let (bh2, dec_sz) = BlockHandle::decode(&dst);
-        // println!("{:?}", dst);
 
         assert_eq!(enc_sz, dec_sz);
         assert_eq!(bh.size(), bh2.size());

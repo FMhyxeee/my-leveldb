@@ -168,7 +168,6 @@ mod tests {
             }
         }
 
-        println!("{:?}", b.entries);
         assert_eq!(b.byte_size(), 49);
         assert_eq!(b.iter().count(), 5);
 

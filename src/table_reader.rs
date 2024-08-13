@@ -19,7 +19,6 @@ fn read_footer<R: Read + Seek>(f: &mut R, size: usize) -> Result<Footer> {
     let mut buf = [0; table_builder::FULL_FOOTER_LENGTH];
     f.read_exact(&mut buf)?;
     let footer = Footer::decode(&buf);
-    println!("Footer: {:?}", footer);
     Ok(footer)
 }
 
@@ -40,7 +39,6 @@ fn read_block<R: Read + Seek, C: Comparator>(
     f: &mut R,
     location: &BlockHandle,
 ) -> Result<BlockIter<C>> {
-    println!("Reading block at {:?}", location);
     let buf = read_bytes(f, location)?;
     Ok(BlockIter::new(buf, *cmp))
 }
@@ -61,9 +59,7 @@ impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
     pub fn new(mut file: R, size: usize, cmp: C, fp: FP, opt: Options) -> Result<Table<R, C, FP>> {
         let footer = read_footer(&mut file, size)?;
 
-        println!("start reading index block");
         let indexblock = read_block(&cmp, &mut file, &footer.index)?;
-        println!("Index block: {:?}", indexblock.block);
 
         let mut metaindexblock = read_block(&cmp, &mut file, &footer.meta_index)?;
 
@@ -205,8 +201,6 @@ mod tests {
         }
 
         let size = d.len();
-
-        println!("Data: {:?}", d);
 
         (d, size)
     }

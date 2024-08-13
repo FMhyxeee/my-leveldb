@@ -87,13 +87,12 @@ impl<C: Comparator> SkipMap<C> {
     /// Returns None if the given key lies past the greatest key in the table.
     fn get_greater_or_equal(&self, key: &[u8]) -> Option<&Node> {
         // Start at the highest skip link of the head node, and work down from there
-        let mut current: *const Node = unsafe { transmute_copy(&self.head.as_ref()) };
+        let mut current: *const Node = self.head.as_ref();
         let mut level = self.head.skips.len() - 1;
 
         loop {
             unsafe {
                 if let Some(next) = (*current).skips[level] {
-                    println!("Comparing {:?} and {:?}", (*next).key, key);
                     match self.cmp.cmp(&(*next).key, key) {
                         std::cmp::Ordering::Less => {
                             current = next;
