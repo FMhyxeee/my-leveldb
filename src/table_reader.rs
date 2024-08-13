@@ -160,6 +160,32 @@ impl<'a, C: Comparator, R: Read + Seek, FP: FilterPolicy> Iterator for TableIter
     }
 }
 
+impl<'a, C: Comparator, R: Read + Seek, FP: FilterPolicy> LdbIterator
+    for TableIterator<'a, R, C, FP>
+{
+    fn seek(&mut self, _key: &[u8]) {
+        // first seek in index block, then set current_block and seek there
+        unimplemented!()
+    }
+
+    fn prev(&mut self) -> Option<Self::Item> {
+        // use BlockIter::seek_to_last
+        unimplemented!()
+    }
+
+    fn reset(&mut self) {
+        todo!()
+    }
+
+    fn valid(&self) -> bool {
+        todo!()
+    }
+
+    fn current(&self) -> Option<Self::Item> {
+        todo!()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
