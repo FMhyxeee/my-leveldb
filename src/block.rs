@@ -26,6 +26,38 @@ pub type BlockContents = Vec<u8>;
 /// A RESTART is a fixed u32 pointing to the beginning of an ENTRY.
 ///
 /// N_RESTARTS contains the number of restarts.
+pub struct Block<C: Comparator> {
+    block: Rc<BlockContents>,
+    cmp: C,
+}
+
+impl<C: Comparator> Block<C> {
+    pub fn iter(&self) -> BlockIter<C> {
+        let restarts = u32::decode_fixed(&self.block[self.block.len() - 4..]).unwrap() as usize;
+        let restart_offset = self.block.len() - 4 * restarts - 4;
+
+        BlockIter {
+            block: self.block.clone(),
+            cmp: self.cmp,
+            offset: 0,
+            restarts_off: restart_offset,
+            current_entry_offset: 0,
+            current_restart_ix: 0,
+
+            key: Vec::new(),
+            val_offset: 0,
+        }
+    }
+
+    pub fn new(contents: BlockContents, cmp: C) -> Block<C> {
+        assert!(contents.len() > 4);
+        Block {
+            block: Rc::new(contents),
+            cmp,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct BlockIter<C: Comparator> {
     pub block: Rc<BlockContents>,
@@ -43,45 +75,7 @@ pub struct BlockIter<C: Comparator> {
     val_offset: usize,
 }
 
-impl<C: Comparator> Clone for BlockIter<C> {
-    fn clone(&self) -> Self {
-        BlockIter {
-            block: self.block.clone(),
-            cmp: self.cmp,
-            offset: self.offset,
-            restarts_off: self.restarts_off,
-            current_entry_offset: self.current_entry_offset,
-            current_restart_ix: self.current_restart_ix,
-
-            key: Vec::new(),
-            val_offset: 0,
-        }
-    }
-}
-
 impl<C: Comparator> BlockIter<C> {
-    pub fn new(contents: BlockContents, cmp: C) -> BlockIter<C> {
-        assert!(contents.len() > 4);
-        let restarts = u32::decode_fixed(&contents[contents.len() - 4..]).unwrap() as usize;
-        let restart_offset = contents.len() - 4 * restarts - 4;
-
-        BlockIter {
-            block: Rc::new(contents),
-            cmp,
-            offset: 0,
-            restarts_off: restart_offset,
-            current_entry_offset: 0,
-            current_restart_ix: 0,
-
-            key: Vec::new(),
-            val_offset: 0,
-        }
-    }
-
-    pub fn obtain(self) -> Rc<Vec<u8>> {
-        self.block.clone()
-    }
-
     fn number_restarts(&self) -> usize {
         u32::decode_fixed(&self.block[self.block.len() - 4..]).unwrap() as usize
     }
@@ -367,7 +361,7 @@ mod tests {
     use core::panic;
 
     use crate::{
-        block::BlockIter,
+        block::Block,
         options::Options,
         types::{LdbIterator, StandardComparator},
     };
@@ -421,10 +415,10 @@ mod tests {
         assert_eq!(blockc.len(), 8);
         assert_eq!(blockc, vec![0, 0, 0, 0, 1, 0, 0, 0]);
 
-        let mut block = BlockIter::new(blockc, StandardComparator);
+        let block = Block::new(blockc, StandardComparator);
 
-        if block.by_ref().next().is_some() {
-            panic!("Should not have any entries");
+        if block.iter().next().is_some() {
+            panic!("Should not iterate over an empty block");
         }
     }
 
@@ -438,9 +432,7 @@ mod tests {
         }
 
         let block_contents = builder.finish();
-
-        let block = BlockIter::new(block_contents, StandardComparator);
-
+        let block = Block::new(block_contents, StandardComparator).iter();
         let mut i = 0;
 
         assert!(!block.valid());
@@ -468,7 +460,7 @@ mod tests {
         }
 
         let block_contents = builder.finish();
-        let mut block = BlockIter::new(block_contents, StandardComparator);
+        let mut block = Block::new(block_contents, StandardComparator).iter();
 
         assert!(!block.valid());
         assert_eq!(
@@ -504,7 +496,7 @@ mod tests {
 
         let block_contents = builder.finish();
 
-        let mut block = BlockIter::new(block_contents, StandardComparator);
+        let mut block = Block::new(block_contents, StandardComparator).iter();
 
         block.seek("prefix_key2".as_bytes());
         assert!(block.valid());
@@ -540,7 +532,7 @@ mod tests {
 
             let block_contents = builder.finish();
 
-            let mut block = BlockIter::new(block_contents, StandardComparator);
+            let mut block = Block::new(block_contents, StandardComparator).iter();
 
             block.seek_to_last();
             assert!(block.valid());
