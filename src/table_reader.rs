@@ -1,4 +1,7 @@
-use std::io::{Read, Result, Seek, SeekFrom};
+use std::{
+    cmp::Ordering,
+    io::{Read, Result, Seek, SeekFrom},
+};
 
 use crate::{
     block::{Block, BlockIter},
@@ -116,6 +119,7 @@ impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
             current_block: self.indexblock.iter(),
             index_block: self.indexblock.iter(),
             table: self,
+            init: false,
         };
         iter.skip_to_next_entry();
         iter
@@ -128,22 +132,29 @@ pub struct TableIterator<'a, R: 'a + Read + Seek, C: 'a + Comparator, FP: 'a + F
     table: &'a mut Table<R, C, FP>,
     current_block: BlockIter<C>,
     index_block: BlockIter<C>,
+
+    init: bool,
 }
 
 impl<'a, C: Comparator, R: Read + Seek, FP: FilterPolicy> TableIterator<'a, R, C, FP> {
-    // Skips to the entry referenced by the next index block.
+    // Skips to the entry referenced by the next entry in the index block.
+    // This is called once a block has run out of entries.
     fn skip_to_next_entry(&mut self) -> bool {
         if let Some((_key, val)) = self.index_block.next() {
-            let (new_block_h, _) = BlockHandle::decode(&val);
-            if let Ok(block) = self.table.read_block_(&new_block_h) {
-                self.current_block = block.iter();
-                true
-            } else {
-                false
-            }
+            self.load_block(&val).is_ok()
         } else {
             false
         }
+    }
+
+    // Load the block at `handle` into `self.current_block`.
+    fn load_block(&mut self, handle: &[u8]) -> Result<()> {
+        let (new_block_handle, _) = BlockHandle::decode(handle);
+
+        let block = self.table.read_block_(&new_block_handle)?;
+        self.current_block = block.iter();
+
+        Ok(())
     }
 }
 
@@ -151,6 +162,7 @@ impl<'a, C: Comparator, R: Read + Seek, FP: FilterPolicy> Iterator for TableIter
     type Item = (Vec<u8>, Vec<u8>);
 
     fn next(&mut self) -> Option<Self::Item> {
+        self.init = true;
         if let Some((key, val)) = self.current_block.next() {
             Some((key, val))
         } else if self.skip_to_next_entry() {
@@ -164,26 +176,71 @@ impl<'a, C: Comparator, R: Read + Seek, FP: FilterPolicy> Iterator for TableIter
 impl<'a, C: Comparator, R: Read + Seek, FP: FilterPolicy> LdbIterator
     for TableIterator<'a, R, C, FP>
 {
-    fn seek(&mut self, _key: &[u8]) {
-        // first seek in index block, then set current_block and seek there
-        unimplemented!()
+    // A call to valid() after seeking is necessary to ensure that the seek worked (e.g., no error
+    // while reading from disk)
+    fn seek(&mut self, to: &[u8]) {
+        // first seek in index block, rewind by one entry (so we get the next smaller index entry),
+        // then set current_block and seek there
+
+        self.index_block.seek(to);
+
+        if let Some((k, _)) = self.index_block.current() {
+            if self.table.cmp.cmp(to, &k) <= Ordering::Equal {
+                // ok, found right block: continue below
+            } else {
+                self.reset();
+            }
+        } else {
+            panic!("index block is empty");
+        }
+
+        // Read block and seek to entry in that block
+        if let Some((k, handle)) = self.index_block.current() {
+            assert!(self.table.cmp.cmp(to, &k) <= Ordering::Equal);
+
+            if let Ok(()) = self.load_block(&handle) {
+                self.current_block.seek(to);
+                self.init = true;
+            } else {
+                self.reset();
+            }
+        }
     }
 
     fn prev(&mut self) -> Option<Self::Item> {
-        // use BlockIter::seek_to_last
-        unimplemented!()
+        // happy path: current block contains previous entry
+        if let Some(result) = self.current_block.prev() {
+            Some(result)
+        } else {
+            // Go back one block and look for the last entry in the previous block
+            if let Some((_, handle)) = self.index_block.prev() {
+                if self.load_block(&handle).is_ok() {
+                    self.current_block.seek_to_last();
+                    self.current_block.current()
+                } else {
+                    self.reset();
+                    None
+                }
+            } else {
+                None
+            }
+        }
     }
 
     fn reset(&mut self) {
-        todo!()
+        self.index_block.reset();
+        self.init = false;
+        self.skip_to_next_entry();
     }
 
+    // This iterator is special in that it's valid even before the first call to next(). It behaves
+    // correctly, though.
     fn valid(&self) -> bool {
-        todo!()
+        self.init && (self.current_block.valid() || self.index_block.valid())
     }
 
     fn current(&self) -> Option<Self::Item> {
-        todo!()
+        self.current_block.current()
     }
 }
 
@@ -213,6 +270,7 @@ mod tests {
         let mut d = Vec::with_capacity(512);
         let opt = Options {
             block_restart_interval: 2,
+            block_size: 64,
             ..Default::default()
         };
 
@@ -234,7 +292,7 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn test_table_iterator() {
+    fn test_table_iterator_fwd() {
         let (src, size) = build_table();
         let data = build_data();
 
@@ -254,5 +312,111 @@ mod tests {
                 (k.as_ref(), v.as_ref())
             );
         }
+    }
+
+    #[test]
+    #[ignore]
+    fn test_table_iterator_state_behavior() {
+        let (src, size) = build_table();
+
+        let mut table = Table::new(
+            Cursor::new(&src as &[u8]),
+            size,
+            StandardComparator,
+            BloomPolicy::new(4),
+            Options::default(),
+        )
+        .unwrap();
+        let mut iter = table.iter();
+
+        // behavior test
+
+        // See comment on valid()
+        assert!(!iter.valid());
+        assert!(iter.current().is_none());
+
+        assert!(iter.next().is_some());
+        assert!(iter.valid());
+        assert!(iter.current().is_some());
+
+        assert!(iter.next().is_some());
+        assert!(iter.prev().is_some());
+        assert!(iter.current().is_some());
+
+        iter.reset();
+        assert!(!iter.valid());
+        assert!(iter.current().is_none());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_table_iterator_values() {
+        let (src, size) = build_table();
+        let data = build_data();
+
+        let mut table = Table::new(
+            Cursor::new(&src as &[u8]),
+            size,
+            StandardComparator,
+            BloomPolicy::new(4),
+            Options::default(),
+        )
+        .unwrap();
+        let mut iter = table.iter();
+        let mut i = 0;
+
+        iter.next();
+        iter.next();
+
+        // Go back to previous entry, check, go forward two entries, repeat
+        // Verifies that prev/next works well.
+        while iter.valid() && i < data.len() {
+            iter.prev();
+
+            if let Some((k, v)) = iter.current() {
+                assert_eq!(
+                    (data[i].0.as_bytes(), data[i].1.as_bytes()),
+                    (k.as_ref(), v.as_ref())
+                );
+            } else {
+                break;
+            }
+
+            i += 1;
+            iter.next();
+            iter.next();
+        }
+
+        assert_eq!(i, 7);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_table_iterator_seek() {
+        let (src, size) = build_table();
+        // let data = build_data();
+
+        let mut table = Table::new(
+            Cursor::new(&src as &[u8]),
+            size,
+            StandardComparator,
+            BloomPolicy::new(4),
+            Options::default(),
+        )
+        .unwrap();
+        let mut iter = table.iter();
+
+        iter.seek("bcd".as_bytes());
+        assert!(iter.valid());
+        assert_eq!(
+            iter.current(),
+            Some(("bcd".as_bytes().to_vec(), "asa".as_bytes().to_vec()))
+        );
+        iter.seek("abc".as_bytes());
+        assert!(iter.valid());
+        assert_eq!(
+            iter.current(),
+            Some(("abc".as_bytes().to_vec(), "def".as_bytes().to_vec()))
+        );
     }
 }
