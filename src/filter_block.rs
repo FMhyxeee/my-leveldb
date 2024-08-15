@@ -219,9 +219,19 @@ mod tests {
             17
         ); // third block in third filter
 
+        let unknown_keys = [
+            "zzz".as_bytes(),
+            "9sad".as_bytes(),
+            "assssaaaass".as_bytes(),
+        ];
+
         for block_offset in vec![0, 5000, 5, 5500].into_iter() {
             for key in get_keys().iter() {
                 assert!(reader.key_may_match(block_offset, key));
+            }
+
+            for key in unknown_keys.iter() {
+                assert!(!reader.key_may_match(block_offset, key));
             }
         }
     }
