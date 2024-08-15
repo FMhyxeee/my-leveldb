@@ -1,4 +1,6 @@
-use integer_encoding::{FixedInt, VarInt};
+use std::io::Write;
+
+use integer_encoding::{FixedInt, VarInt, VarIntWriter};
 
 use crate::{
     memtable::MemTable,
@@ -15,54 +17,45 @@ pub struct WriteBatch {
 }
 
 impl WriteBatch {
-    pub fn new() -> WriteBatch {
+    pub(crate) fn new() -> WriteBatch {
         let v = vec![0; HEADER_SIZE];
         WriteBatch { entries: v }
     }
 
-    fn from(buf: Vec<u8>) -> WriteBatch {
-        WriteBatch { entries: buf }
+    /// Initialize a WriteBatch with a serialized WriteBatch.
+    pub fn set_contents(&mut self, from: &[u8]) {
+        self.entries.clear();
+        self.entries.extend_from_slice(from);
     }
 
+    /// Adds an entry to a WriteBatch, to be added to the database.
     pub fn put(&mut self, k: &[u8], v: &[u8]) {
-        let mut ix = self.entries.len();
-
-        self.entries.push(ValueType::TypeValue as u8);
-        ix += 1;
-
-        self.entries.resize(ix + k.len().required_space(), 0);
-        ix += k.len().encode_var(&mut self.entries[ix..]);
-
-        self.entries.extend_from_slice(k);
-        ix += k.len();
-
-        self.entries.resize(ix + v.len().required_space(), 0);
-        v.len().encode_var(&mut self.entries[ix..]);
-
-        self.entries.extend_from_slice(v);
-        // ix += v.len();
+        self.entries
+            .write_all(&[ValueType::TypeValue as u8])
+            .unwrap();
+        self.entries.write_varint(k.len()).unwrap();
+        self.entries.write_all(k).unwrap();
+        self.entries.write_varint(v.len()).unwrap();
+        self.entries.write_all(v).unwrap();
 
         let c = self.count();
         self.set_count(c + 1);
     }
 
+    // Marks an entry to be deleted from the database.
     pub fn delete(&mut self, k: &[u8]) {
-        let mut ix = self.entries.len();
-
-        self.entries.push(ValueType::TypeDeletion as u8);
-        ix += 1;
-
-        self.entries.resize(ix + k.len().required_space(), 0);
-        k.len().encode_var(&mut self.entries[ix..]);
-
-        self.entries.extend_from_slice(k);
-        // ix += k.len();
+        self.entries
+            .write_all(&[ValueType::TypeDeletion as u8])
+            .unwrap();
+        self.entries.write_varint(k.len()).unwrap();
+        self.entries.write_all(k).unwrap();
 
         let c = self.count();
         self.set_count(c + 1);
     }
 
-    fn clear(&mut self) {
+    /// Clear the contents of a WriteBatch.
+    pub fn clear(&mut self) {
         self.entries.clear()
     }
 
@@ -74,11 +67,12 @@ impl WriteBatch {
         c.encode_fixed(&mut self.entries[COUNT_OFFSET..COUNT_OFFSET + 4]);
     }
 
+    // Returns how many opertations are in the batch.
     pub fn count(&self) -> u32 {
         u32::decode_fixed(&self.entries[COUNT_OFFSET..COUNT_OFFSET + 4]).unwrap()
     }
 
-    pub fn set_sequence(&mut self, s: SequenceNumber) {
+    fn set_sequence(&mut self, s: SequenceNumber) {
         s.encode_fixed(&mut self.entries[SEQNUM_OFFSET..SEQNUM_OFFSET + 8]);
     }
 
@@ -93,21 +87,29 @@ impl WriteBatch {
         }
     }
 
-    pub fn insert_into_memtable<C: Comparator>(&self, seq: SequenceNumber, mt: &mut MemTable<C>) {
-        let mut sequence_num = seq;
-
+    pub fn insert_into_memtable<C: Comparator>(
+        &self,
+        mut seq: SequenceNumber,
+        mt: &mut MemTable<C>,
+    ) {
         for (k, v) in self.iter() {
             match v {
-                Some(v_) => mt.add(sequence_num, ValueType::TypeValue, k, v_),
-                None => mt.add(sequence_num, ValueType::TypeDeletion, k, "".as_bytes()),
+                Some(v_) => mt.add(seq, ValueType::TypeValue, k, v_),
+                None => mt.add(seq, ValueType::TypeDeletion, k, b""),
             }
-            sequence_num += 1;
+            seq += 1;
         }
     }
 
     pub fn encode(mut self, seq: SequenceNumber) -> Vec<u8> {
         self.set_sequence(seq);
         self.entries
+    }
+}
+
+impl Default for WriteBatch {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -127,13 +129,13 @@ impl<'a> Iterator for WriteBatchIter<'a> {
         let tag = self.batch.entries[self.ix];
         self.ix += 1;
 
-        let (klen, l) = usize::decode_var(&self.batch.entries[self.ix..]).unwrap();
+        let (klen, l) = usize::decode_var(&self.batch.entries[self.ix..])?;
         self.ix += l;
         let k = &self.batch.entries[self.ix..self.ix + klen];
         self.ix += klen;
 
         if tag == ValueType::TypeValue as u8 {
-            let (vlen, m) = usize::decode_var(&self.batch.entries[self.ix..]).unwrap();
+            let (vlen, m) = usize::decode_var(&self.batch.entries[self.ix..])?;
             self.ix += m;
             let v = &self.batch.entries[self.ix..self.ix + vlen];
             self.ix += vlen;
@@ -168,6 +170,7 @@ mod tests {
             }
         }
 
+        eprintln!("b.entries: {:?}", b.entries);
         assert_eq!(b.byte_size(), 49);
         assert_eq!(b.iter().count(), 5);
 
