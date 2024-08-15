@@ -1,6 +1,6 @@
 use std::{
     cmp::Ordering,
-    mem::{replace, size_of, transmute_copy},
+    mem::{replace, size_of},
 };
 
 use rand::{
@@ -87,7 +87,7 @@ impl<C: Comparator> SkipMap<C> {
     /// Returns None if the given key lies past the greatest key in the table.
     fn get_greater_or_equal(&self, key: &[u8]) -> Option<&Node> {
         // Start at the highest skip link of the head node, and work down from there
-        let mut current: *const Node = self.head.as_ref();
+        let mut current = self.head.as_ref() as *const Node;
         let mut level = self.head.skips.len() - 1;
 
         loop {
@@ -128,7 +128,7 @@ impl<C: Comparator> SkipMap<C> {
     /// Returns None if no smaller key was found.
     fn get_next_smaller(&self, key: &[u8]) -> Option<&Node> {
         // Start at the highest skip link of the head node, and work down from there
-        let mut current: *const Node = unsafe { transmute_copy(&self.head.as_ref()) };
+        let mut current = self.head.as_ref() as *const Node;
         let mut level = self.head.skips.len() - 1;
 
         loop {
@@ -165,7 +165,7 @@ impl<C: Comparator> SkipMap<C> {
         // Keeping track of skip entries what will need to be update.
 
         let new_height = self.random_height();
-        let mut current: *mut Node = unsafe { transmute_copy(&self.head.as_mut()) };
+        let mut current = self.head.as_mut() as *mut Node;
 
         let mut level = MAX_HEIGHT - 1;
         let mut prevs: Vec<Option<*mut Node>> = vec![Some(current); new_height];
@@ -207,7 +207,7 @@ impl<C: Comparator> SkipMap<C> {
             value: value.to_vec(),
         });
 
-        let newp = unsafe { transmute_copy(&new.as_mut()) };
+        let newp = new.as_mut() as *mut Node;
 
         for (idx, prev) in prevs.iter().enumerate().take(new_height) {
             if let &Some(prev) = prev {
@@ -242,7 +242,7 @@ impl<C: Comparator> SkipMap<C> {
 
     /// Runs through the skipmap and prints everything including addresses
     fn dbg_print(&self) {
-        let mut current: *const Node = &*self.head;
+        let mut current = &*self.head as *const Node;
         loop {
             unsafe {
                 println!(
@@ -275,7 +275,7 @@ impl<'a, C: Comparator + 'a> Iterator for SkipMapIter<'a, C> {
         // we first go to the next element, then return that -- in order to skip the head node
         unsafe {
             (*self.current).next.as_ref().map(|next| {
-                self.current = transmute_copy(&next.as_ref());
+                self.current = next.as_ref() as *const Node;
                 (&next.key[..], &next.value[..])
             })
         }

@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    mem::{swap, transmute_copy},
-};
+use std::{collections::HashMap, mem::swap};
 
 // No clone, no copy! The asserts that an LRUHandle exists only once.
 type LRUHandle<T> = *mut LRUNode<T>;
@@ -41,7 +38,7 @@ impl<T> LRUList<T> {
                 prev: Some(&mut self.head),
             });
 
-            let newp = unsafe { transmute_copy(&new.as_mut()) };
+            let newp = new.as_mut() as *mut LRUNode<T>;
 
             // Set up the node after the new node
             self.head.next.as_mut().unwrap().prev = Some(newp);
@@ -57,7 +54,7 @@ impl<T> LRUList<T> {
                 next: None,
                 prev: Some(&mut self.head),
             });
-            let newp = unsafe { transmute_copy(&new.as_mut()) };
+            let newp = new.as_mut() as *mut LRUNode<T>;
 
             // Set tail
             self.head.prev = Some(newp);
