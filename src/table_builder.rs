@@ -85,9 +85,9 @@ impl Footer {
     }
 }
 
-/// A table consists of DATA BLOCKS, METABLOCKS, a METAINDEXBLOCK and a FOOTER.
+/// A table consists of DATA BLOCKS, META BLOCKS, a METAINDEX BLOCK, an INDEX BLOCK and a FOOTER.
 ///
-/// DATABLOCKS, METABLOCKS, INDEX BLOCK and METAINDEX BLOCK are built using the code in
+/// DATA BLOCKS, META BLOCKS, INDEX BLOCK and METAINDEX BLOCK are built using the code in
 /// the `block` module.
 ///
 /// The FOOTER consists of a BlockHandle that points to the metaindex block, another pointing to
@@ -179,7 +179,7 @@ impl<'a, C: Comparator, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, C,
         assert!(self.data_block.is_some());
 
         let block = self.data_block.take().unwrap();
-        let sep = find_shortest_sep::<C>(&self.cmp, block.last_key(), next_key);
+        let sep = find_shortest_sep(&self.cmp, block.last_key(), next_key);
         self.prev_block_last_key = block.last_key().to_vec();
         let contents = block.finish();
 
@@ -242,6 +242,7 @@ impl<'a, C: Comparator, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, C,
 
             let mut handle_enc = [0u8; 16];
             let enc_len = fblock_handle.encode_to(&mut handle_enc);
+
             meta_ix_block.add(filter_key.as_bytes(), &handle_enc[0..enc_len]);
         }
 
