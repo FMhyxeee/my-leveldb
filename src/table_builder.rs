@@ -207,7 +207,7 @@ impl<'a, C: Comparator, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, C,
         self.write_block(contents, ctype);
     }
 
-    /// Calculates the checksum , writes the block to disk and updates the offset.
+    /// Calculates the checksum, writes the block to disk and updates the offset.
     fn write_block(&mut self, block: BlockContents, t: CompressionType) -> BlockHandle {
         // compression is still unimplemented
         assert_eq!(t, CompressionType::CompressionNone);
@@ -221,11 +221,11 @@ impl<'a, C: Comparator, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, C,
         digest.finalize().encode_fixed(&mut buf);
 
         // TODO: Handle errors here.
-        self.dst.write_all(&buf).unwrap(); //crc32 checksum
+        self.dst.write_all(&block).unwrap(); //block contents
         self.dst
             .write_all(&[t as u8; TABLE_BLOCK_COMPRESS_LEN])
             .unwrap(); //compression type
-        self.dst.write_all(&block).unwrap(); //block contents
+        self.dst.write_all(&buf).unwrap(); //crc32 checksum
 
         let handle = BlockHandle::new(self.offset, block.len());
 

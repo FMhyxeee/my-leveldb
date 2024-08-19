@@ -24,6 +24,7 @@ fn main() {
     digest.update(&data1);
 
     let a = digest.finalize();
+    println!("a: {:?}", a.to_be_bytes());
 
     let data2 = data
         .iter()

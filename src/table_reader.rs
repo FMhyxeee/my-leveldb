@@ -28,7 +28,6 @@ fn read_footer<R: Read + Seek>(f: &mut R, size: usize) -> Result<Footer> {
 }
 
 fn read_bytes<R: Read + Seek>(f: &mut R, location: &BlockHandle) -> Result<Vec<u8>> {
-    f.seek(SeekFrom::Start(0))?;
     f.seek(SeekFrom::Start(location.offset() as u64))?;
 
     let mut buf = vec![0; location.size()];
@@ -87,7 +86,8 @@ impl<C: Comparator> TableBlock<C> {
         digest.update(&self.block.contents());
         digest.update(&[self.compression as u8]);
 
-        digest.finalize() == self.checksum
+        let cksum = digest.finalize();
+        cksum == self.checksum
     }
 }
 
@@ -110,10 +110,16 @@ impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
         let indexblock = read_block(&cmp, &mut file, &footer.index)?;
         let metaindexblock = read_block(&cmp, &mut file, &footer.meta_index)?;
 
-        if !indexblock.verify() || !metaindexblock.verify() {
+        if !indexblock.verify() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                "checksum mismatch",
+                " index block checksum mismatch",
+            ));
+        }
+        if !metaindexblock.verify() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "meta index checksum mismatch",
             ));
         }
 
@@ -375,7 +381,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_table_reader_checksum() {
         let (mut src, size) = build_table();
         println!("size: {}", size);
@@ -410,7 +415,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_table_iterator_fwd() {
         let (src, size) = build_table();
         let data = build_data();
@@ -434,7 +438,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_table_iterator_state_behavior() {
         let (src, size) = build_table();
 
@@ -470,7 +473,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_table_iterator_values() {
         let (src, size) = build_table();
         let data = build_data();
@@ -512,7 +514,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_table_iterator_seek() {
         let (src, size) = build_table();
         // let data = build_data();
@@ -542,7 +543,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_table_get() {
         let (src, size) = build_table();
 
