@@ -9,6 +9,7 @@ use crate::{
     blockhandle::BlockHandle,
     filter::FilterPolicy,
     filter_block::FilterBlockReader,
+    key_types::InternalKey,
     options::{self, CompressionType, Options},
     table_builder::{self, Footer, TABLE_BLOCK_CKSUM_LEN, TABLE_BLOCK_COMPRESS_LEN},
     types::LdbIterator,
@@ -179,6 +180,23 @@ impl<R: Read + Seek, C: Comparator, FP: FilterPolicy> Table<R, C, FP> {
             index_block: self.indexblock.iter(),
             table: self,
             init: false,
+        }
+    }
+
+    /// Retrieve value from table
+    pub fn get(&mut self, k: InternalKey) -> Option<Vec<u8>> {
+        let mut iter = self.iter();
+
+        iter.seek(k);
+
+        if let Some((fkey, fval)) = iter.current() {
+            if fkey == k {
+                Some(fval)
+            } else {
+                None
+            }
+        } else {
+            None
         }
     }
 }
@@ -521,5 +539,27 @@ mod tests {
             iter.current(),
             Some(("abc".as_bytes().to_vec(), "def".as_bytes().to_vec()))
         );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_table_get() {
+        let (src, size) = build_table();
+
+        let mut table = Table::new(
+            Cursor::new(&src as &[u8]),
+            size,
+            StandardComparator,
+            BloomPolicy::new(4),
+            Options::default(),
+        )
+        .unwrap();
+
+        assert!(table.get("aaa".as_bytes()).is_none());
+        assert_eq!(table.get("abc".as_bytes()), Some("def".as_bytes().to_vec()));
+        assert!(table.get("abcd".as_bytes()).is_none());
+        assert_eq!(table.get("bcd".as_bytes()), Some("asa".as_bytes().to_vec()));
+        assert_eq!(table.get("zzz".as_bytes()), Some("111".as_bytes().to_vec()));
+        assert!(table.get("zz1".as_bytes()).is_none());
     }
 }
