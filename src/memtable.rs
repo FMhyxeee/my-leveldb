@@ -14,7 +14,7 @@ pub struct MemTable {
 impl MemTable {
     pub fn new() -> Self {
         Self {
-            map: SkipMap::new(),
+            map: SkipMap::new_memtable_map(),
         }
     }
 

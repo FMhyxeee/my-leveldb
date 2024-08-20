@@ -9,40 +9,12 @@ use rand::{
 };
 
 use crate::{
-    key_types::{parse_memtable_key, parse_tag},
-    types::{cmp, LdbIterator},
+    key_types::memtable_key_cmp,
+    types::{cmp, CmpFn, LdbIterator},
 };
 
 const MAX_HEIGHT: usize = 12;
 const BRANCHING_FACTOR: u32 = 4;
-
-type CmpFn = Box<dyn Fn(&[u8], &[u8]) -> Ordering>;
-
-/// An internal comparator wrapping a user-supplied comparator. This comparator is used to compare
-/// memtable keys, which contain length prefixes and a sequence number.
-/// The ordering is determined by asking the wrapped comparator; ties are broken by *reverse*
-/// ordering the sequence numbers. (This means that when having an entry abx/4 and searching for
-/// abx/5, then abx/4 is counted as "greater-or-equal", making snapshot functionality work at all)
-fn memtable_key_cmp(a: &[u8], b: &[u8]) -> std::cmp::Ordering {
-    let (akeylen, akeyoff, atag, _, _) = parse_memtable_key(a);
-    let (bkeylen, bkeyoff, btag, _, _) = parse_memtable_key(b);
-
-    let userkey_a = &a[akeyoff..akeyoff + akeylen];
-    let userkey_b = &b[bkeyoff..bkeyoff + bkeylen];
-
-    let userkey_order = cmp(userkey_a, userkey_b);
-
-    if userkey_order != Ordering::Equal {
-        userkey_order
-    } else {
-        // look at sequence number, in reverse order
-        let (_, aseq) = parse_tag(atag);
-        let (_, bseq) = parse_tag(btag);
-
-        // reverse!
-        bseq.cmp(&aseq)
-    }
-}
 
 /// A node is in skipmap contains links to the next node and others that are further away (skips);
 /// `Skips[0]` is the immedicate element after, that is, the element contains in `next`.
@@ -63,16 +35,18 @@ pub struct SkipMap {
     len: usize,
     // approximation of memory used.
     approx_mem: usize,
-    cmp: CmpFn,
+    cmp: Box<CmpFn>,
 }
 
 impl SkipMap {
-    pub fn new_standard() -> SkipMap {
+    /// Used for testing: Uses the standard comparator.
+    pub fn new_memtable_map() -> SkipMap {
         let mut skm = SkipMap::new();
-        skm.cmp = Box::new(cmp);
+        skm.cmp = Box::new(memtable_key_cmp);
         skm
     }
 
+    /// Returns a Skipmap that uses the memtable comparator (see above).
     pub fn new() -> SkipMap {
         let s = vec![None; MAX_HEIGHT];
 
@@ -86,7 +60,7 @@ impl SkipMap {
             rand: StdRng::from_rng(ThreadRng::default()).unwrap(),
             len: 0,
             approx_mem: size_of::<Self>() + MAX_HEIGHT * size_of::<Option<*mut Node>>(),
-            cmp: Box::new(memtable_key_cmp),
+            cmp: Box::new(cmp),
         }
     }
 
@@ -362,7 +336,7 @@ pub mod tests {
     use super::*;
 
     pub fn make_skipmap() -> SkipMap {
-        let mut skm = SkipMap::new_standard();
+        let mut skm = SkipMap::new();
         let keys = vec![
             b"aba", b"abb", b"abc", b"abd", b"abe", b"abf", b"abg", b"abh", b"abi", b"abj", b"abk",
             b"abl", b"abm", b"abn", b"abo", b"abp", b"abq", b"abr", b"abs", b"abt", b"abu", b"abv",
@@ -413,7 +387,7 @@ pub mod tests {
 
     #[test]
     fn test_iterator_0() {
-        let skm = SkipMap::new_standard();
+        let skm = SkipMap::new();
         let mut i = 0;
         for _ in skm.iter() {
             i += 1;
