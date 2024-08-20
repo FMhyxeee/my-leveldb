@@ -95,7 +95,7 @@ impl Footer {
 /// 0xdb4775248b80fb57.
 
 pub struct TableBuilder<'a, Dst: Write, FilterPol: FilterPolicy> {
-    o: Options,
+    opt: Options,
     dst: Dst,
 
     offset: usize,
@@ -109,16 +109,7 @@ pub struct TableBuilder<'a, Dst: Write, FilterPol: FilterPolicy> {
 
 impl<'a, Dst: Write> TableBuilder<'a, Dst, NoFilterPolicy> {
     pub fn new_no_filter(opt: Options, dst: Dst) -> TableBuilder<'a, Dst, NoFilterPolicy> {
-        TableBuilder {
-            o: opt,
-            dst,
-            offset: 0,
-            prev_block_last_key: vec![],
-            num_entries: 0,
-            data_block: Some(BlockBuilder::new(opt)),
-            index_block: Some(BlockBuilder::new(opt)),
-            filter_block: None,
-        }
+        TableBuilder::new(opt, dst, NoFilterPolicy)
     }
 }
 
@@ -129,12 +120,12 @@ impl<'a, Dst: Write> TableBuilder<'a, Dst, NoFilterPolicy> {
 impl<'a, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, Dst, FilterPol> {
     pub fn new(opt: Options, dst: Dst, fpol: FilterPol) -> TableBuilder<'a, Dst, FilterPol> {
         TableBuilder {
-            o: opt,
+            opt: opt.clone(),
             dst,
             offset: 0,
             prev_block_last_key: vec![],
             num_entries: 0,
-            data_block: Some(BlockBuilder::new(opt)),
+            data_block: Some(BlockBuilder::new(opt.clone())),
             index_block: Some(BlockBuilder::new(opt)),
             filter_block: Some(FilterBlockBuilder::new(fpol)),
         }
@@ -148,7 +139,7 @@ impl<'a, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, Dst, FilterPol> {
         assert!(self.data_block.is_some());
         assert!(self.num_entries == 0 || cmp(key, &self.prev_block_last_key) == Ordering::Greater);
 
-        if self.data_block.as_ref().unwrap().size_estimate() > self.o.block_size {
+        if self.data_block.as_ref().unwrap().size_estimate() > self.opt.block_size {
             self.write_data_block(key);
         }
 
@@ -181,9 +172,9 @@ impl<'a, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, Dst, FilterPol> {
             .as_mut()
             .unwrap()
             .add(&sep, &handle_enc[0..enc_len]);
-        self.data_block = Some(BlockBuilder::new(self.o));
+        self.data_block = Some(BlockBuilder::new(self.opt.clone()));
 
-        let ctype = self.o.compression_type;
+        let ctype = self.opt.compression_type;
 
         self.write_block(contents, ctype);
 
@@ -201,7 +192,7 @@ impl<'a, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, Dst, FilterPol> {
         let crc_alg = crc::Crc::<u32>::new(&crc::CRC_32_CKSUM);
         let mut digest = crc_alg.digest();
         digest.update(&block);
-        digest.update(&[self.o.compression_type as u8; TABLE_BLOCK_COMPRESS_LEN]);
+        digest.update(&[self.opt.compression_type as u8; TABLE_BLOCK_COMPRESS_LEN]);
 
         digest.finalize().encode_fixed(&mut buf);
 
@@ -221,7 +212,7 @@ impl<'a, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, Dst, FilterPol> {
 
     pub fn finish(mut self) {
         assert!(self.data_block.is_some());
-        let ctype = self.o.compression_type;
+        let ctype = self.opt.compression_type;
 
         // If there's a pending data block, write it
         if self.data_block.as_ref().unwrap().entries() > 0 {
@@ -229,7 +220,7 @@ impl<'a, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, Dst, FilterPol> {
         }
 
         // Create metaindex block
-        let mut meta_ix_block = BlockBuilder::new(self.o);
+        let mut meta_ix_block = BlockBuilder::new(self.opt.clone());
         if let Some(fblock) = self.filter_block.take() {
             let filter_key = format!("filter.{}", fblock.filter_name());
             let fblock_data = fblock.finish();

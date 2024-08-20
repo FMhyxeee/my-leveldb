@@ -257,13 +257,13 @@ pub struct BlockBuilder {
 }
 
 impl BlockBuilder {
-    pub fn new(o: Options) -> BlockBuilder {
+    pub fn new(opt: Options) -> BlockBuilder {
         let mut restarts = vec![0];
         restarts.reserve(1023);
 
         BlockBuilder {
-            opt: o,
-            buffer: Vec::with_capacity(o.block_size),
+            buffer: Vec::with_capacity(opt.block_size),
+            opt,
             restarts,
             last_key: Vec::new(),
             counter: 0,
@@ -527,7 +527,7 @@ mod tests {
         for block_restart_interval in [2, 6, 10] {
             o.block_restart_interval = block_restart_interval;
             let data = get_data();
-            let mut builder = BlockBuilder::new(o);
+            let mut builder = BlockBuilder::new(o.clone());
 
             for &(k, v) in data.iter() {
                 builder.add(k, v);
