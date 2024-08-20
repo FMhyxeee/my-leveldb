@@ -146,7 +146,15 @@ impl<T> LRUList<T> {
 }
 
 pub type CacheKey = Vec<u8>;
+pub struct CacheID(u64);
 type CacheEntry<T> = (T, LRUHandle<CacheKey>);
+
+impl CacheID {
+    // Serialize a Cache ID to a byte string.
+    pub fn serialize(&self) -> Vec<u8> {
+        self.0.to_be_bytes().to_vec()
+    }
+}
 
 /// Implementation of `SharedLRUCache`.
 /// Based on a HashMap; the elements are linked in order to support the LRU ordering.
@@ -157,6 +165,7 @@ pub struct Cache<T> {
     list: LRUList<CacheKey>,
     map: HashMap<CacheKey, CacheEntry<T>>,
     cap: usize,
+    id: u64,
 }
 
 impl<T> Cache<T> {
@@ -166,7 +175,13 @@ impl<T> Cache<T> {
             list: LRUList::new(),
             map: HashMap::new(),
             cap: capacity,
+            id: 0,
         }
+    }
+
+    pub fn new_cached_id(&mut self) -> CacheID {
+        self.id += 1;
+        CacheID(self.id)
     }
 
     /// How many the cache currently contains

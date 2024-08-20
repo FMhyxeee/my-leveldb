@@ -7,6 +7,7 @@ use std::{
 use crate::{
     block::{Block, BlockIter},
     blockhandle::BlockHandle,
+    cache::CacheID,
     filter::{FilterPolicy, InternalFilterPolicy},
     filter_block::FilterBlockReader,
     key_types::{internal_key_cmp, InternalKey},
@@ -88,6 +89,7 @@ impl TableBlock {
 pub struct Table<R: Read + Seek, FP: FilterPolicy> {
     file: R,
     file_size: usize,
+    cache_id: CacheID,
 
     opt: Options,
     cmp: Box<CmpFn>,
@@ -139,9 +141,12 @@ impl<R: Read + Seek, FP: FilterPolicy> Table<R, FP> {
 
         metaindexiter.reset();
 
+        let cache_id = opt.block_cache.lock().unwrap().new_cached_id();
+
         Ok(Table {
             file,
             file_size: size,
+            cache_id,
             opt,
             cmp: Box::new(cmp),
             footer,
