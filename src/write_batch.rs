@@ -5,7 +5,6 @@ use integer_encoding::{FixedInt, VarInt, VarIntWriter};
 use crate::{
     memtable::MemTable,
     types::{SequenceNumber, ValueType},
-    Comparator,
 };
 
 const SEQNUM_OFFSET: usize = 0;
@@ -87,11 +86,7 @@ impl WriteBatch {
         }
     }
 
-    pub fn insert_into_memtable<C: Comparator>(
-        &self,
-        mut seq: SequenceNumber,
-        mt: &mut MemTable<C>,
-    ) {
+    pub fn insert_into_memtable(&self, mut seq: SequenceNumber, mt: &mut MemTable) {
         for (k, v) in self.iter() {
             match v {
                 Some(v_) => mt.add(seq, ValueType::TypeValue, k, v_),

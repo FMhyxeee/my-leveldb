@@ -1,5 +1,7 @@
 //! A collection of fundamental and/or simple types used by other modules
 
+use std::cmp::Ordering;
+
 pub enum ValueType {
     TypeDeletion = 0,
     TypeValue = 1,
@@ -18,19 +20,8 @@ pub enum Status {
     IOError(String),
 }
 
-/// Trait used to influnence how SkipMap determines the order of elements. Use StandardComparator
-/// for the normal implementation using numerical comparison.
-pub trait Comparator: Copy {
-    fn cmp(&self, a: &[u8], b: &[u8]) -> std::cmp::Ordering;
-}
-
-#[derive(Clone, Copy, Default)]
-pub struct StandardComparator;
-
-impl Comparator for StandardComparator {
-    fn cmp(&self, a: &[u8], b: &[u8]) -> std::cmp::Ordering {
-        a.cmp(b)
-    }
+pub fn cmp(a: &[u8], b: &[u8]) -> Ordering {
+    a.cmp(b)
 }
 
 pub struct Range<'a> {

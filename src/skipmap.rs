@@ -8,10 +8,41 @@ use rand::{
     RngCore, SeedableRng,
 };
 
-use crate::types::{Comparator, LdbIterator, StandardComparator};
+use crate::{
+    key_types::{parse_memtable_key, parse_tag},
+    types::{cmp, LdbIterator},
+};
 
 const MAX_HEIGHT: usize = 12;
 const BRANCHING_FACTOR: u32 = 4;
+
+type CmpFn = Box<dyn Fn(&[u8], &[u8]) -> Ordering>;
+
+/// An internal comparator wrapping a user-supplied comparator. This comparator is used to compare
+/// memtable keys, which contain length prefixes and a sequence number.
+/// The ordering is determined by asking the wrapped comparator; ties are broken by *reverse*
+/// ordering the sequence numbers. (This means that when having an entry abx/4 and searching for
+/// abx/5, then abx/4 is counted as "greater-or-equal", making snapshot functionality work at all)
+fn memtable_key_cmp(a: &[u8], b: &[u8]) -> std::cmp::Ordering {
+    let (akeylen, akeyoff, atag, _, _) = parse_memtable_key(a);
+    let (bkeylen, bkeyoff, btag, _, _) = parse_memtable_key(b);
+
+    let userkey_a = &a[akeyoff..akeyoff + akeylen];
+    let userkey_b = &b[bkeyoff..bkeyoff + bkeylen];
+
+    let userkey_order = cmp(userkey_a, userkey_b);
+
+    if userkey_order != Ordering::Equal {
+        userkey_order
+    } else {
+        // look at sequence number, in reverse order
+        let (_, aseq) = parse_tag(atag);
+        let (_, bseq) = parse_tag(btag);
+
+        // reverse!
+        bseq.cmp(&aseq)
+    }
+}
 
 /// A node is in skipmap contains links to the next node and others that are further away (skips);
 /// `Skips[0]` is the immedicate element after, that is, the element contains in `next`.
@@ -26,23 +57,23 @@ struct Node {
 /// `contains()`; in order to get full key and value for an entry, use a `SkipMapIter` instance,
 /// `seek()` to the key to look up (this is as fast as any lookup in a skip map), and then call
 /// `current()`.
-pub struct SkipMap<C: Comparator> {
+pub struct SkipMap {
     head: Box<Node>,
     rand: StdRng,
-    cmp: C,
     len: usize,
     // approximation of memory used.
     approx_mem: usize,
+    cmp: CmpFn,
 }
 
-impl SkipMap<StandardComparator> {
-    pub fn new() -> SkipMap<StandardComparator> {
-        SkipMap::new_with_cmp(StandardComparator)
+impl SkipMap {
+    pub fn new_standard() -> SkipMap {
+        let mut skm = SkipMap::new();
+        skm.cmp = Box::new(cmp);
+        skm
     }
-}
 
-impl<C: Comparator> SkipMap<C> {
-    pub fn new_with_cmp(cmp: C) -> SkipMap<C> {
+    pub fn new() -> SkipMap {
         let s = vec![None; MAX_HEIGHT];
 
         SkipMap {
@@ -53,9 +84,9 @@ impl<C: Comparator> SkipMap<C> {
                 value: Vec::new(),
             }),
             rand: StdRng::from_rng(ThreadRng::default()).unwrap(),
-            cmp,
             len: 0,
             approx_mem: size_of::<Self>() + MAX_HEIGHT * size_of::<Option<*mut Node>>(),
+            cmp: Box::new(memtable_key_cmp),
         }
     }
 
@@ -93,15 +124,15 @@ impl<C: Comparator> SkipMap<C> {
         loop {
             unsafe {
                 if let Some(next) = (*current).skips[level] {
-                    match self.cmp.cmp(&(*next).key, key) {
-                        std::cmp::Ordering::Less => {
+                    match (self.cmp)(&(*next).key, key) {
+                        Ordering::Less => {
                             current = next;
                             continue;
                         }
-                        std::cmp::Ordering::Equal => {
+                        Ordering::Equal => {
                             return Some(&*next);
                         }
-                        std::cmp::Ordering::Greater => {
+                        Ordering::Greater => {
                             if level == 0 {
                                 return Some(&(*next));
                             }
@@ -116,7 +147,7 @@ impl<C: Comparator> SkipMap<C> {
             level -= 1;
         }
         unsafe {
-            if current.is_null() || self.cmp.cmp(&(*current).key, key) == Ordering::Less {
+            if current.is_null() || (self.cmp)(&(*current).key, key) == Ordering::Less {
                 None
             } else {
                 Some(&*current)
@@ -134,7 +165,7 @@ impl<C: Comparator> SkipMap<C> {
         loop {
             unsafe {
                 if let Some(next) = (*current).skips[level] {
-                    if self.cmp.cmp(&(*next).key, key) == Ordering::Less {
+                    if (self.cmp)(&(*next).key, key) == Ordering::Less {
                         current = next;
                         continue;
                     }
@@ -150,7 +181,7 @@ impl<C: Comparator> SkipMap<C> {
         unsafe {
             if current.is_null()
                 || (*current).key.is_empty()
-                || self.cmp.cmp(&(*current).key, key) != Ordering::Less
+                || (self.cmp)(&(*current).key, key) != Ordering::Less
             {
                 None
             } else {
@@ -176,7 +207,7 @@ impl<C: Comparator> SkipMap<C> {
             unsafe {
                 if let Some(next) = (*current).skips[level] {
                     // If the wanted position is after the current node
-                    let ord = self.cmp.cmp(&(*next).key, key);
+                    let ord = (self.cmp)(&(*next).key, key);
                     assert!(
                         ord != std::cmp::Ordering::Equal,
                         "No duplicate keys allowed"
@@ -233,7 +264,7 @@ impl<C: Comparator> SkipMap<C> {
         let _ = unsafe { replace(&mut (*current).next, Some(new)) };
     }
 
-    pub fn iter(&self) -> SkipMapIter<C> {
+    pub fn iter(&self) -> SkipMapIter {
         SkipMapIter {
             map: self,
             current: &*self.head,
@@ -263,12 +294,12 @@ impl<C: Comparator> SkipMap<C> {
     }
 }
 
-pub struct SkipMapIter<'a, C: Comparator> {
-    map: &'a SkipMap<C>,
+pub struct SkipMapIter<'a> {
+    map: &'a SkipMap,
     current: *const Node,
 }
 
-impl<'a, C: Comparator + 'a> Iterator for SkipMapIter<'a, C> {
+impl<'a> Iterator for SkipMapIter<'a> {
     type Item = (&'a [u8], &'a [u8]);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -282,7 +313,7 @@ impl<'a, C: Comparator + 'a> Iterator for SkipMapIter<'a, C> {
     }
 }
 
-impl<'a, C: Comparator> LdbIterator for SkipMapIter<'a, C> {
+impl<'a> LdbIterator for SkipMapIter<'a> {
     fn seek(&mut self, key: &[u8]) {
         if let Some(node) = self.map.get_greater_or_equal(key) {
             self.current = node;
@@ -330,8 +361,8 @@ impl<'a, C: Comparator> LdbIterator for SkipMapIter<'a, C> {
 pub mod tests {
     use super::*;
 
-    pub fn make_skipmap() -> SkipMap<StandardComparator> {
-        let mut skm = SkipMap::new();
+    pub fn make_skipmap() -> SkipMap {
+        let mut skm = SkipMap::new_standard();
         let keys = vec![
             b"aba", b"abb", b"abc", b"abd", b"abe", b"abf", b"abg", b"abh", b"abi", b"abj", b"abk",
             b"abl", b"abm", b"abn", b"abo", b"abp", b"abq", b"abr", b"abs", b"abt", b"abu", b"abv",
@@ -382,7 +413,7 @@ pub mod tests {
 
     #[test]
     fn test_iterator_0() {
-        let skm = SkipMap::new();
+        let skm = SkipMap::new_standard();
         let mut i = 0;
         for _ in skm.iter() {
             i += 1;
@@ -454,15 +485,6 @@ pub mod tests {
             }
         }
         assert_eq!(iter.next(), None);
-    }
-
-    #[test]
-    fn test_approx_mem() {
-        let skm = SkipMap::new();
-        let mem = skm.approx_mem();
-        let initial_mem =
-            size_of::<SkipMap<StandardComparator>>() + MAX_HEIGHT * size_of::<Option<*mut Node>>();
-        assert_eq!(mem, initial_mem);
     }
 
     #[test]

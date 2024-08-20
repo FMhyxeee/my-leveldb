@@ -9,7 +9,7 @@ use crate::{
     filter_block::FilterBlockBuilder,
     key_types::InternalKey,
     options::{CompressionType, Options},
-    Comparator,
+    types::cmp,
 };
 
 pub const FOOTER_LENGTH: usize = 40;
@@ -20,7 +20,7 @@ pub const MAGIC_FOOTER_ENCODED: [u8; 8] = [0x57, 0xfb, 0x80, 0x8b, 0x24, 0x75, 0
 pub const TABLE_BLOCK_COMPRESS_LEN: usize = 1;
 pub const TABLE_BLOCK_CKSUM_LEN: usize = 4;
 
-fn find_shortest_sep<C: Comparator>(c: &C, lo: InternalKey, hi: InternalKey) -> Vec<u8> {
+fn find_shortest_sep(lo: InternalKey, hi: InternalKey) -> Vec<u8> {
     let min = if lo.len() < hi.len() {
         lo.len()
     } else {
@@ -37,7 +37,7 @@ fn find_shortest_sep<C: Comparator>(c: &C, lo: InternalKey, hi: InternalKey) -> 
     } else if lo[diff_at] < 0xff && lo[diff_at] + 1 < hi[diff_at] {
         let mut result = Vec::from(&lo[0..diff_at + 1]);
         result[diff_at] += 1;
-        assert_eq!(c.cmp(&result, hi), Ordering::Less);
+        assert_eq!(cmp(&result, hi), Ordering::Less);
         return result;
     }
 
@@ -94,35 +94,29 @@ impl Footer {
 /// the index block, padding to fill up to 40 B and at the end the 8B magic number
 /// 0xdb4775248b80fb57.
 
-pub struct TableBuilder<'a, C: Comparator, Dst: Write, FilterPol: FilterPolicy> {
+pub struct TableBuilder<'a, Dst: Write, FilterPol: FilterPolicy> {
     o: Options,
-    cmp: C,
     dst: Dst,
 
     offset: usize,
     num_entries: usize,
     prev_block_last_key: Vec<u8>,
 
-    data_block: Option<BlockBuilder<C>>,
-    index_block: Option<BlockBuilder<C>>,
+    data_block: Option<BlockBuilder>,
+    index_block: Option<BlockBuilder>,
     filter_block: Option<FilterBlockBuilder<'a, FilterPol>>,
 }
 
-impl<'a, C: Comparator, Dst: Write> TableBuilder<'a, C, Dst, NoFilterPolicy> {
-    pub fn new_no_filter(
-        opt: Options,
-        cmp: C,
-        dst: Dst,
-    ) -> TableBuilder<'a, C, Dst, NoFilterPolicy> {
+impl<'a, Dst: Write> TableBuilder<'a, Dst, NoFilterPolicy> {
+    pub fn new_no_filter(opt: Options, dst: Dst) -> TableBuilder<'a, Dst, NoFilterPolicy> {
         TableBuilder {
             o: opt,
-            cmp,
             dst,
             offset: 0,
             prev_block_last_key: vec![],
             num_entries: 0,
-            data_block: Some(BlockBuilder::new(opt, cmp)),
-            index_block: Some(BlockBuilder::new(opt, cmp)),
+            data_block: Some(BlockBuilder::new(opt)),
+            index_block: Some(BlockBuilder::new(opt)),
             filter_block: None,
         }
     }
@@ -132,22 +126,16 @@ impl<'a, C: Comparator, Dst: Write> TableBuilder<'a, C, Dst, NoFilterPolicy> {
 /// Calculating checksums and bloom filters.
 /// It's recommended that you use InternalFilterPolicy as FilterPol, as that policy extracts the
 /// underlying user keys from the InternalKeys used as keys in the table.
-impl<'a, C: Comparator, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, C, Dst, FilterPol> {
-    pub fn new(
-        opt: Options,
-        cmp: C,
-        dst: Dst,
-        fpol: FilterPol,
-    ) -> TableBuilder<'a, C, Dst, FilterPol> {
+impl<'a, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, Dst, FilterPol> {
+    pub fn new(opt: Options, dst: Dst, fpol: FilterPol) -> TableBuilder<'a, Dst, FilterPol> {
         TableBuilder {
             o: opt,
-            cmp,
             dst,
             offset: 0,
             prev_block_last_key: vec![],
             num_entries: 0,
-            data_block: Some(BlockBuilder::new(opt, cmp)),
-            index_block: Some(BlockBuilder::new(opt, cmp)),
+            data_block: Some(BlockBuilder::new(opt)),
+            index_block: Some(BlockBuilder::new(opt)),
             filter_block: Some(FilterBlockBuilder::new(fpol)),
         }
     }
@@ -158,10 +146,7 @@ impl<'a, C: Comparator, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, C,
 
     pub fn add(&mut self, key: InternalKey<'a>, val: &'a [u8]) {
         assert!(self.data_block.is_some());
-        assert!(
-            self.num_entries == 0
-                || self.cmp.cmp(key, &self.prev_block_last_key) == Ordering::Greater
-        );
+        assert!(self.num_entries == 0 || cmp(key, &self.prev_block_last_key) == Ordering::Greater);
 
         if self.data_block.as_ref().unwrap().size_estimate() > self.o.block_size {
             self.write_data_block(key);
@@ -184,7 +169,7 @@ impl<'a, C: Comparator, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, C,
         assert!(self.data_block.is_some());
 
         let block = self.data_block.take().unwrap();
-        let sep = find_shortest_sep(&self.cmp, block.last_key(), next_key);
+        let sep = find_shortest_sep(block.last_key(), next_key);
         self.prev_block_last_key = block.last_key().to_vec();
         let contents = block.finish();
 
@@ -196,7 +181,7 @@ impl<'a, C: Comparator, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, C,
             .as_mut()
             .unwrap()
             .add(&sep, &handle_enc[0..enc_len]);
-        self.data_block = Some(BlockBuilder::new(self.o, self.cmp));
+        self.data_block = Some(BlockBuilder::new(self.o));
 
         let ctype = self.o.compression_type;
 
@@ -244,7 +229,7 @@ impl<'a, C: Comparator, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, C,
         }
 
         // Create metaindex block
-        let mut meta_ix_block = BlockBuilder::new(self.o, self.cmp);
+        let mut meta_ix_block = BlockBuilder::new(self.o);
         if let Some(fblock) = self.filter_block.take() {
             let filter_key = format!("filter.{}", fblock.filter_name());
             let fblock_data = fblock.finish();
@@ -274,58 +259,34 @@ impl<'a, C: Comparator, Dst: Write, FilterPol: FilterPolicy> TableBuilder<'a, C,
 
 #[cfg(test)]
 mod tests {
-    use crate::{filter::BloomPolicy, types::StandardComparator};
+    use crate::filter::BloomPolicy;
 
     use super::*;
 
     #[test]
     fn test_shortest_sep() {
         assert_eq!(
-            find_shortest_sep::<StandardComparator>(
-                &StandardComparator,
-                "abcd".as_bytes(),
-                "abcf".as_bytes()
-            ),
+            find_shortest_sep("abcd".as_bytes(), "abcf".as_bytes()),
             "abce".as_bytes()
         );
         assert_eq!(
-            find_shortest_sep::<StandardComparator>(
-                &StandardComparator,
-                "abcdefghi".as_bytes(),
-                "abcffghi".as_bytes()
-            ),
+            find_shortest_sep("abcdefghi".as_bytes(), "abcffghi".as_bytes()),
             "abce".as_bytes()
         );
         assert_eq!(
-            find_shortest_sep::<StandardComparator>(
-                &StandardComparator,
-                "a".as_bytes(),
-                "a".as_bytes()
-            ),
+            find_shortest_sep("a".as_bytes(), "a".as_bytes()),
             "a".as_bytes()
         );
         assert_eq!(
-            find_shortest_sep::<StandardComparator>(
-                &StandardComparator,
-                "a".as_bytes(),
-                "b".as_bytes()
-            ),
+            find_shortest_sep("a".as_bytes(), "b".as_bytes()),
             "a".as_bytes()
         );
         assert_eq!(
-            find_shortest_sep::<StandardComparator>(
-                &StandardComparator,
-                "abc".as_bytes(),
-                "zzz".as_bytes()
-            ),
+            find_shortest_sep("abc".as_bytes(), "zzz".as_bytes()),
             "b".as_bytes()
         );
         assert_eq!(
-            find_shortest_sep::<StandardComparator>(
-                &StandardComparator,
-                "".as_bytes(),
-                "".as_bytes()
-            ),
+            find_shortest_sep("".as_bytes(), "".as_bytes()),
             "".as_bytes()
         );
     }
@@ -352,7 +313,7 @@ mod tests {
                 block_restart_interval: 3,
                 ..Default::default()
             };
-            let mut b = TableBuilder::new(opt, StandardComparator, &mut d, BloomPolicy::new(4));
+            let mut b = TableBuilder::new(opt, &mut d, BloomPolicy::new(4));
 
             let data = [
                 ("abc", "def"),
@@ -379,7 +340,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut b = TableBuilder::new(opt, StandardComparator, &mut d, BloomPolicy::new(4));
+        let mut b = TableBuilder::new(opt, &mut d, BloomPolicy::new(4));
 
         // Test two equal consecutive keys
         let data = [
