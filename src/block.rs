@@ -181,12 +181,12 @@ impl LdbIterator for BlockIter {
             let c = self
                 .opt
                 .cmp
-                .cmp(to, &self.block[self.offset..self.offset + non_shared]);
+                .cmp(&self.block[self.offset..self.offset + non_shared], to);
 
             if c == Ordering::Less {
-                right = middle - 1;
-            } else {
                 left = middle;
+            } else {
+                right = middle - 1;
             }
         }
 
