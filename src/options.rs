@@ -3,7 +3,8 @@ use std::{rc::Rc, sync::Mutex};
 use crate::{
     block::Block,
     cache::Cache,
-    types::{Cmp, DefaultCmp, SequenceNumber},
+    cmp::{Cmp, DefaultCmp},
+    types::SequenceNumber,
 };
 
 const KB: usize = 1 << 10;

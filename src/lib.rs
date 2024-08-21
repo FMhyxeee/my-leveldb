@@ -2,6 +2,7 @@
 mod block;
 mod blockhandle;
 mod cache;
+mod cmp;
 mod disk_env;
 mod env;
 mod filter;

@@ -6,10 +6,7 @@
 
 use std::{cmp::Ordering, rc::Rc};
 
-use crate::{
-    options::Options,
-    types::{Cmp, LdbIterator},
-};
+use crate::{cmp::Cmp, options::Options, types::LdbIterator};
 
 #[derive(PartialEq)]
 enum SL {
