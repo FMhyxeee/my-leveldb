@@ -2,6 +2,7 @@ use integer_encoding::FixedInt;
 use std::{
     cmp::Ordering,
     io::{Read, Result, Seek, SeekFrom},
+    rc::Rc,
 };
 
 use crate::{
@@ -10,10 +11,10 @@ use crate::{
     cache::CacheID,
     filter::{FilterPolicy, InternalFilterPolicy},
     filter_block::FilterBlockReader,
-    key_types::{internal_key_cmp, InternalKey},
+    key_types::{InternalKey, InternalKeyCmp},
     options::{self, CompressionType, Options},
     table_builder::{self, Footer, TABLE_BLOCK_CKSUM_LEN, TABLE_BLOCK_COMPRESS_LEN},
-    types::{cmp, CmpFn, LdbIterator},
+    types::LdbIterator,
 };
 
 /// Reads the table footer.
@@ -45,7 +46,11 @@ struct TableBlock {
 
 impl TableBlock {
     /// Reads a block at location.
-    fn read_block<R: Read + Seek>(f: &mut R, location: &BlockHandle) -> Result<TableBlock> {
+    fn read_block<R: Read + Seek>(
+        opt: Options,
+        f: &mut R,
+        location: &BlockHandle,
+    ) -> Result<TableBlock> {
         // The block is denoted by offset and length in BlockHandle. A block in an encoded
         // table is followed by 1B compression type and 4B checksum.
         let buf = read_bytes(f, location)?;
@@ -67,7 +72,7 @@ impl TableBlock {
         .unwrap();
 
         Ok(TableBlock {
-            block: Block::new(buf),
+            block: Block::new(opt, buf),
             checksum: u32::decode_fixed(&cksum).unwrap(),
             compression: options::int_to_compressiontype(compress[0] as u32)
                 .unwrap_or(CompressionType::CompressionNone),
@@ -92,7 +97,6 @@ pub struct Table<R: Read + Seek, FP: FilterPolicy> {
     cache_id: CacheID,
 
     opt: Options,
-    cmp: Box<CmpFn>,
 
     footer: Footer,
     indexblock: Block,
@@ -101,11 +105,11 @@ pub struct Table<R: Read + Seek, FP: FilterPolicy> {
 
 impl<R: Read + Seek, FP: FilterPolicy> Table<R, FP> {
     /// Creates a new table reader operating on unformatted keys (i.e., UserKeys).
-    pub fn new_raw(mut file: R, size: usize, fp: FP, opt: Options) -> Result<Table<R, FP>> {
+    pub fn new_raw(opt: Options, mut file: R, size: usize, fp: FP) -> Result<Table<R, FP>> {
         let footer = read_footer(&mut file, size)?;
 
-        let indexblock = TableBlock::read_block(&mut file, &footer.index)?;
-        let metaindexblock = TableBlock::read_block(&mut file, &footer.meta_index)?;
+        let indexblock = TableBlock::read_block(opt.clone(), &mut file, &footer.index)?;
+        let metaindexblock = TableBlock::read_block(opt.clone(), &mut file, &footer.meta_index)?;
 
         if !indexblock.verify() {
             return Err(std::io::Error::new(
@@ -148,7 +152,6 @@ impl<R: Read + Seek, FP: FilterPolicy> Table<R, FP> {
             file_size: size,
             cache_id,
             opt,
-            cmp: Box::new(cmp),
             footer,
             filters: filter_block_reader,
             indexblock: indexblock.block,
@@ -159,18 +162,18 @@ impl<R: Read + Seek, FP: FilterPolicy> Table<R, FP> {
     /// a different comparator (internal_key_cmp) and a different filter policy
     /// (InternalFilterPolicy) are used.
     pub fn new(
+        mut opt: Options,
         file: R,
         size: usize,
         fp: FP,
-        opt: Options,
     ) -> Result<Table<R, InternalFilterPolicy<FP>>> {
-        let mut t = Table::new_raw(file, size, InternalFilterPolicy::new(fp), opt)?;
-        t.cmp = Box::new(internal_key_cmp);
+        opt.cmp = Rc::new(Box::new(InternalKeyCmp(opt.cmp.clone())));
+        let t = Table::new_raw(opt, file, size, InternalFilterPolicy::new(fp))?;
         Ok(t)
     }
 
     fn read_block(&mut self, location: &BlockHandle) -> Result<TableBlock> {
-        let b = TableBlock::read_block(&mut self.file, location)?;
+        let b = TableBlock::read_block(self.opt.clone(), &mut self.file, location)?;
         if !b.verify() {
             Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -201,6 +204,7 @@ impl<R: Read + Seek, FP: FilterPolicy> Table<R, FP> {
             current_block: self.indexblock.iter(),
             current_block_off: 0,
             index_block: self.indexblock.iter(),
+            opt: self.opt.clone(),
             table: self,
             init: false,
         }
@@ -253,6 +257,7 @@ impl<R: Read + Seek, FP: FilterPolicy> Table<R, FP> {
 /// into data blocks.
 pub struct TableIterator<'a, R: 'a + Read + Seek, FP: 'a + FilterPolicy> {
     table: &'a mut Table<R, FP>,
+    opt: Options,
     current_block: BlockIter,
     current_block_off: usize,
     index_block: BlockIter,
@@ -314,7 +319,7 @@ impl<'a, R: Read + Seek, FP: FilterPolicy> LdbIterator for TableIterator<'a, R, 
         self.index_block.seek(to);
 
         if let Some((past_block, handle)) = self.index_block.current() {
-            if (self.table.cmp)(to, &past_block) == Ordering::Less {
+            if self.opt.cmp.cmp(to, &past_block) == Ordering::Less {
                 // ok, found right block: continue
                 if let Ok(()) = self.load_block(&handle) {
                     self.current_block.seek(to);
@@ -392,6 +397,7 @@ mod tests {
         ]
     }
 
+    // Build a table containing raw keys (no format)
     fn build_table() -> (Vec<u8>, usize) {
         let mut d = Vec::with_capacity(512);
         let opt = Options {
@@ -401,7 +407,8 @@ mod tests {
         };
 
         {
-            let mut b = TableBuilder::new(opt, &mut d, BloomPolicy::new(4));
+            // Uses the standard comparator in opt.
+            let mut b = TableBuilder::new_raw(opt, &mut d, BloomPolicy::new(4));
             let data = build_data();
 
             for &(k, v) in data.iter() {
@@ -416,6 +423,7 @@ mod tests {
         (d, size)
     }
 
+    // Build a table containing keys in InternalKey format.
     fn build_internal_table() -> (Vec<u8>, usize) {
         let mut d = Vec::with_capacity(512);
 
@@ -435,6 +443,7 @@ mod tests {
             .collect();
 
         {
+            // use InternalKeyCmp
             let mut b =
                 TableBuilder::new(opt, &mut d, InternalFilterPolicy::new(BloomPolicy::new(4)));
 
@@ -457,10 +466,10 @@ mod tests {
 
         src[45] = 0;
         let mut table = Table::new_raw(
+            Options::default(),
             Cursor::new(&src as &[u8]),
             size,
             BloomPolicy::new(4),
-            Options::default(),
         )
         .unwrap();
 
@@ -492,10 +501,10 @@ mod tests {
         let data = build_data();
 
         let mut table = Table::new_raw(
+            Options::default(),
             Cursor::new(&src as &[u8]),
             size,
             BloomPolicy::new(4),
-            Options::default(),
         )
         .unwrap();
         let iter = table.iter();
@@ -514,10 +523,10 @@ mod tests {
         // let data = build_data();
 
         let mut table = Table::new_raw(
+            Options::default(),
             Cursor::new(&src as &[u8]),
             size,
             BloomPolicy::new(4),
-            Options::default(),
         )
         .unwrap();
 
@@ -537,10 +546,10 @@ mod tests {
         let (src, size) = build_table();
 
         let mut table = Table::new_raw(
+            Options::default(),
             Cursor::new(&src as &[u8]),
             size,
             BloomPolicy::new(4),
-            Options::default(),
         )
         .unwrap();
         let mut iter = table.iter();
@@ -572,10 +581,10 @@ mod tests {
         let data = build_data();
 
         let mut table = Table::new_raw(
+            Options::default(),
             Cursor::new(&src as &[u8]),
             size,
             BloomPolicy::new(4),
-            Options::default(),
         )
         .unwrap();
         let mut iter = table.iter();
@@ -612,10 +621,10 @@ mod tests {
         // let data = build_data();
 
         let mut table = Table::new_raw(
+            Options::default(),
             Cursor::new(&src as &[u8]),
             size,
             BloomPolicy::new(4),
-            Options::default(),
         )
         .unwrap();
         let mut iter = table.iter();
@@ -639,10 +648,10 @@ mod tests {
         let (src, size) = build_table();
 
         let mut table = Table::new_raw(
+            Options::default(),
             Cursor::new(&src as &[u8]),
             size,
             BloomPolicy::new(4),
-            Options::default(),
         )
         .unwrap();
 
@@ -664,10 +673,10 @@ mod tests {
         let (src, size) = build_internal_table();
 
         let mut table = Table::new(
+            Options::default(),
             Cursor::new(&src as &[u8]),
             size,
             BloomPolicy::new(4),
-            Options::default(),
         )
         .unwrap();
         let filter_reader = table.filters.clone().unwrap();

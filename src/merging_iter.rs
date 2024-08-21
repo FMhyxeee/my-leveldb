@@ -4,9 +4,12 @@
 // Issue: 1) prev() may not work correctly at the beginning of a merging
 // iterator.
 
-use std::cmp::Ordering;
+use std::{cmp::Ordering, rc::Rc};
 
-use crate::types::{cmp, LdbIterator};
+use crate::{
+    options::Options,
+    types::{Cmp, LdbIterator},
+};
 
 #[derive(PartialEq)]
 enum SL {
@@ -24,17 +27,20 @@ pub struct MergingIter<'a, 'b: 'a> {
     iters: Vec<&'a mut dyn LdbIterator<Item = (&'b [u8], &'b [u8])>>,
     current: Option<usize>,
     direction: Direction,
+    cmp: Rc<Box<dyn Cmp>>,
 }
 
 impl<'a, 'b: 'a> MergingIter<'a, 'b> {
     /// Construct a new merging iterator.
     pub fn new(
+        opt: Options,
         iters: Vec<&'a mut dyn LdbIterator<Item = (&'b [u8], &'b [u8])>>,
     ) -> MergingIter<'a, 'b> {
         MergingIter {
             iters,
             current: None,
             direction: Direction::Fwd,
+            cmp: opt.cmp,
         }
     }
 
@@ -61,7 +67,7 @@ impl<'a, 'b: 'a> MergingIter<'a, 'b> {
                             if i != current {
                                 self.iters[i].seek(key);
                                 if let Some((current_key, _)) = self.iters[i].current() {
-                                    if cmp(current_key, key) == Ordering::Equal {
+                                    if self.cmp.cmp(current_key, key) == Ordering::Equal {
                                         self.iters[i].next();
                                     }
                                 }
@@ -104,7 +110,7 @@ impl<'a, 'b: 'a> MergingIter<'a, 'b> {
         for i in 1..self.iters.len() {
             if let Some(current) = self.iters[i].current() {
                 if let Some(smallest) = self.iters[next_ix].current() {
-                    if cmp(current.0, smallest.0) == ord {
+                    if self.cmp.cmp(current.0, smallest.0) == ord {
                         next_ix = i;
                     }
                 } else {
@@ -190,7 +196,7 @@ mod tests {
         let mut iter = skm.iter();
         let mut iter2 = skm.iter();
 
-        let miter = MergingIter::new(vec![&mut iter]);
+        let miter = MergingIter::new(Options::default(), vec![&mut iter]);
 
         for (k, v) in miter {
             if let Some((k2, v2)) = iter2.next() {
@@ -208,7 +214,7 @@ mod tests {
         let mut iter = skm.iter();
         let mut iter2 = skm.iter();
 
-        let mut miter = MergingIter::new(vec![&mut iter, &mut iter2]);
+        let mut miter = MergingIter::new(Options::default(), vec![&mut iter, &mut iter2]);
 
         while let Some((k, v)) = miter.next() {
             if let Some((k2, v2)) = miter.next() {
@@ -226,7 +232,7 @@ mod tests {
         let mut iter = skm.iter();
         let mut iter2 = skm.iter();
 
-        let mut miter = MergingIter::new(vec![&mut iter, &mut iter2]);
+        let mut miter = MergingIter::new(Options::default(), vec![&mut iter, &mut iter2]);
 
         let first = miter.next();
         miter.next();
@@ -249,7 +255,7 @@ mod tests {
         let mut it2 = TestLdbIter::new(vec![(b("abb"), val), (b("abd"), val)]);
         let expected = [b("aba"), b("abb"), b("abc"), b("abd"), b("abe")];
 
-        let iter = MergingIter::new(vec![&mut it1, &mut it2]);
+        let iter = MergingIter::new(Options::default(), vec![&mut it1, &mut it2]);
 
         for (i, (k, _)) in iter.enumerate() {
             assert_eq!(k, expected[i]);
@@ -263,7 +269,7 @@ mod tests {
         let mut it1 = TestLdbIter::new(vec![(b("aba"), val), (b("abc"), val), (b("abe"), val)]);
         let mut it2 = TestLdbIter::new(vec![(b("abb"), val), (b("abd"), val)]);
 
-        let mut iter = MergingIter::new(vec![&mut it1, &mut it2]);
+        let mut iter = MergingIter::new(Options::default(), vec![&mut it1, &mut it2]);
 
         assert!(!iter.valid());
         iter.next();
@@ -290,7 +296,7 @@ mod tests {
         let mut it1 = TestLdbIter::new(vec![(b("aba"), val), (b("abc"), val), (b("abe"), val)]);
         let mut it2 = TestLdbIter::new(vec![(b("abb"), val), (b("abd"), val)]);
 
-        let mut iter = MergingIter::new(vec![&mut it1, &mut it2]);
+        let mut iter = MergingIter::new(Options::default(), vec![&mut it1, &mut it2]);
 
         iter.next();
         iter.next();

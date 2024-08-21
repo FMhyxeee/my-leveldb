@@ -1,23 +1,35 @@
-use std::cmp::Ordering;
+use std::rc::Rc;
 
 use crate::{
     key_types::{
-        build_memtable_key, parse_memtable_key, InternalKey, LookupKey, MemtableKey, UserKey,
+        build_memtable_key, parse_memtable_key, InternalKey, LookupKey, MemtableKey,
+        MemtableKeyCmp, UserKey,
     },
+    options::Options,
     skipmap::{SkipMap, SkipMapIter},
-    types::{cmp, LdbIterator, SequenceNumber, Status, ValueType},
+    types::{LdbIterator, SequenceNumber, Status, ValueType},
 };
 
 /// Provides Insert/Iterata, based on the SkipMap implementation.
 /// MemTable uses MemtableKeys internally, that is, it stores key and value in the [Skipmap] key.
 pub struct MemTable {
     map: SkipMap,
+    opt: Options,
 }
 
 impl MemTable {
-    pub fn new() -> Self {
-        Self {
-            map: SkipMap::new_memtable_map(),
+    /// Returns a new MemTable.
+    /// This wraps opt.cmp inside a MemtableKey-specific comparator.
+    pub fn new(mut opt: Options) -> Self {
+        opt.cmp = Rc::new(Box::new(MemtableKeyCmp(opt.cmp.clone())));
+        MemTable::new_raw(opt)
+    }
+
+    /// Doesn't wrap the comparator in a MemtableKeyCmp.
+    fn new_raw(opt: Options) -> Self {
+        MemTable {
+            map: SkipMap::new(opt.clone()),
+            opt,
         }
     }
 
@@ -37,15 +49,11 @@ impl MemTable {
         if let Some(e) = iter.current() {
             let foundkey: MemtableKey = e.0;
 
-            let (lkeylen, lkeyoff, _, _, _) = parse_memtable_key(key.memtable_key());
+            // let (lkeylen, lkeyoff, _, _, _) = parse_memtable_key(key.memtable_key());
             let (fkeylen, fkeyoff, tag, vallen, valoff) = parse_memtable_key(foundkey);
 
             // Compare user key -- if equal, process
-            if cmp(
-                &key.memtable_key()[lkeyoff..lkeyoff + lkeylen],
-                &foundkey[fkeyoff..fkeyoff + fkeylen],
-            ) == Ordering::Equal
-            {
+            if key.user_key() == &foundkey[fkeyoff..fkeyoff + fkeylen] {
                 if tag & 0xff == ValueType::TypeValue as u64 {
                     return Result::Ok(foundkey[valoff..valoff + vallen].to_vec());
                 } else {
@@ -155,7 +163,7 @@ mod tests {
     use super::*;
 
     fn get_memtable() -> MemTable {
-        let mut mt = MemTable::new();
+        let mut mt = MemTable::new(Options::default());
         let entries = vec![
             (115, "abc", "122"),
             (120, "abc", "123"),
@@ -178,7 +186,7 @@ mod tests {
 
     #[test]
     fn test_memtable_add() {
-        let mut mt = MemTable::new();
+        let mut mt = MemTable::new_raw(Options::default());
         mt.add(123, ValueType::TypeValue, b"abc", b"123");
 
         assert_eq!(

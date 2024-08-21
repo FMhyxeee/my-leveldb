@@ -2,7 +2,6 @@ use std::cmp::Ordering;
 use std::rc::Rc;
 
 use crate::options::Options;
-use crate::types::cmp;
 use crate::types::LdbIterator;
 
 use integer_encoding::FixedInt;
@@ -28,6 +27,7 @@ pub type BlockContents = Vec<u8>;
 /// N_RESTARTS contains the number of restarts.
 pub struct Block {
     block: Rc<BlockContents>,
+    opt: Options,
 }
 
 impl Block {
@@ -37,6 +37,7 @@ impl Block {
 
         BlockIter {
             block: self.block.clone(),
+            opt: self.opt.clone(),
             offset: 0,
             restarts_off: restart_offset,
             current_entry_offset: 0,
@@ -51,17 +52,18 @@ impl Block {
         self.block.clone()
     }
 
-    pub fn new(contents: BlockContents) -> Block {
+    pub fn new(opt: Options, contents: BlockContents) -> Block {
         assert!(contents.len() > 4);
         Block {
             block: Rc::new(contents),
+            opt,
         }
     }
 }
 
-#[derive(Debug)]
 pub struct BlockIter {
     pub block: Rc<BlockContents>,
+    opt: Options,
     // start of next entry
     offset: usize,
     // offset of restarts area
@@ -176,7 +178,10 @@ impl LdbIterator for BlockIter {
             // At a restart, the shared part is suppose to be 0.
             assert_eq!(shared, 0);
 
-            let c = cmp(to, &self.block[self.offset..self.offset + non_shared]);
+            let c = self
+                .opt
+                .cmp
+                .cmp(to, &self.block[self.offset..self.offset + non_shared]);
 
             if c == Ordering::Less {
                 right = middle - 1;
@@ -190,8 +195,8 @@ impl LdbIterator for BlockIter {
         self.offset = self.get_restart_point(left);
 
         // Linear search from here on
-        for (k, _) in self.by_ref() {
-            if cmp(k.as_slice(), to) >= Ordering::Equal {
+        while let Some((k, _)) = self.next() {
+            if self.opt.cmp.cmp(k.as_slice(), to) >= Ordering::Equal {
                 return;
             }
         }
@@ -291,7 +296,9 @@ impl BlockBuilder {
 
     pub fn add(&mut self, key: &[u8], val: &[u8]) {
         assert!(self.counter <= self.opt.block_restart_interval);
-        assert!(self.buffer.is_empty() || cmp(&self.last_key[..], key) == Ordering::Less);
+        assert!(
+            self.buffer.is_empty() || self.opt.cmp.cmp(&self.last_key[..], key) == Ordering::Less
+        );
 
         let mut shared = 0;
 
@@ -408,7 +415,7 @@ mod tests {
         assert_eq!(blockc.len(), 8);
         assert_eq!(blockc, vec![0, 0, 0, 0, 1, 0, 0, 0]);
 
-        let block = Block::new(blockc);
+        let block = Block::new(Options::default(), blockc);
 
         if block.iter().next().is_some() {
             panic!("Should not iterate over an empty block");
@@ -425,7 +432,7 @@ mod tests {
         }
 
         let block_contents = builder.finish();
-        let block = Block::new(block_contents).iter();
+        let block = Block::new(Options::default(), block_contents).iter();
         let mut i = 0;
 
         assert!(!block.valid());
@@ -446,14 +453,14 @@ mod tests {
         };
 
         let data = get_data();
-        let mut builder = BlockBuilder::new(o);
+        let mut builder = BlockBuilder::new(o.clone());
 
         for &(k, v) in data.iter() {
             builder.add(k, v);
         }
 
         let block_contents = builder.finish();
-        let mut block = Block::new(block_contents).iter();
+        let mut block = Block::new(o.clone(), block_contents).iter();
 
         assert!(!block.valid());
         assert_eq!(
@@ -481,7 +488,7 @@ mod tests {
         };
 
         let data = get_data();
-        let mut builder = BlockBuilder::new(o);
+        let mut builder = BlockBuilder::new(o.clone());
 
         for &(k, v) in data.iter() {
             builder.add(k, v);
@@ -489,7 +496,7 @@ mod tests {
 
         let block_contents = builder.finish();
 
-        let mut block = Block::new(block_contents).iter();
+        let mut block = Block::new(o.clone(), block_contents).iter();
 
         block.seek("prefix_key2".as_bytes());
         assert!(block.valid());
@@ -535,7 +542,7 @@ mod tests {
 
             let block_contents = builder.finish();
 
-            let mut block = Block::new(block_contents).iter();
+            let mut block = Block::new(o.clone(), block_contents).iter();
 
             block.seek_to_last();
             assert!(block.valid());

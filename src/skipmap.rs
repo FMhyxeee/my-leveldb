@@ -1,6 +1,7 @@
 use std::{
     cmp::Ordering,
     mem::{replace, size_of},
+    rc::Rc,
 };
 
 use rand::{
@@ -8,10 +9,7 @@ use rand::{
     RngCore, SeedableRng,
 };
 
-use crate::{
-    key_types::memtable_key_cmp,
-    types::{cmp, CmpFn, LdbIterator},
-};
+use crate::{key_types::MemtableKeyCmp, options::Options, types::LdbIterator};
 
 const MAX_HEIGHT: usize = 12;
 const BRANCHING_FACTOR: u32 = 4;
@@ -35,19 +33,18 @@ pub struct SkipMap {
     len: usize,
     // approximation of memory used.
     approx_mem: usize,
-    cmp: Box<CmpFn>,
+    opt: Options,
 }
 
 impl SkipMap {
-    /// Used for testing: Uses the standard comparator.
-    pub fn new_memtable_map() -> SkipMap {
-        let mut skm = SkipMap::new();
-        skm.cmp = Box::new(memtable_key_cmp);
-        skm
+    /// Returns a SkipMap that wraps the comparator from opt inside a MemtableKeyCmp
+    pub fn new_memtable_map(mut opt: Options) -> SkipMap {
+        opt.cmp = Rc::new(Box::new(MemtableKeyCmp(opt.cmp.clone())));
+        SkipMap::new(opt)
     }
 
     /// Returns a Skipmap that uses the memtable comparator (see above).
-    pub fn new() -> SkipMap {
+    pub fn new(opt: Options) -> SkipMap {
         let s = vec![None; MAX_HEIGHT];
 
         SkipMap {
@@ -60,7 +57,7 @@ impl SkipMap {
             rand: StdRng::from_rng(ThreadRng::default()).unwrap(),
             len: 0,
             approx_mem: size_of::<Self>() + MAX_HEIGHT * size_of::<Option<*mut Node>>(),
-            cmp: Box::new(cmp),
+            opt,
         }
     }
 
@@ -98,7 +95,7 @@ impl SkipMap {
         loop {
             unsafe {
                 if let Some(next) = (*current).skips[level] {
-                    match (self.cmp)(&(*next).key, key) {
+                    match self.opt.cmp.cmp((*next).key.as_slice(), key) {
                         Ordering::Less => {
                             current = next;
                             continue;
@@ -121,7 +118,7 @@ impl SkipMap {
             level -= 1;
         }
         unsafe {
-            if current.is_null() || (self.cmp)(&(*current).key, key) == Ordering::Less {
+            if current.is_null() || self.opt.cmp.cmp(&(*current).key, key) == Ordering::Less {
                 None
             } else {
                 Some(&*current)
@@ -139,7 +136,7 @@ impl SkipMap {
         loop {
             unsafe {
                 if let Some(next) = (*current).skips[level] {
-                    if (self.cmp)(&(*next).key, key) == Ordering::Less {
+                    if self.opt.cmp.cmp((*next).key.as_slice(), key) == Ordering::Less {
                         current = next;
                         continue;
                     }
@@ -155,7 +152,7 @@ impl SkipMap {
         unsafe {
             if current.is_null()
                 || (*current).key.is_empty()
-                || (self.cmp)(&(*current).key, key) != Ordering::Less
+                || self.opt.cmp.cmp(&(*current).key, key) != Ordering::Less
             {
                 None
             } else {
@@ -181,7 +178,7 @@ impl SkipMap {
             unsafe {
                 if let Some(next) = (*current).skips[level] {
                     // If the wanted position is after the current node
-                    let ord = (self.cmp)(&(*next).key, key);
+                    let ord = self.opt.cmp.cmp(&(*next).key, key);
                     assert!(
                         ord != std::cmp::Ordering::Equal,
                         "No duplicate keys allowed"
@@ -336,7 +333,7 @@ pub mod tests {
     use super::*;
 
     pub fn make_skipmap() -> SkipMap {
-        let mut skm = SkipMap::new();
+        let mut skm = SkipMap::new(Options::default());
         let keys = vec![
             b"aba", b"abb", b"abc", b"abd", b"abe", b"abf", b"abg", b"abh", b"abi", b"abj", b"abk",
             b"abl", b"abm", b"abn", b"abo", b"abp", b"abq", b"abr", b"abs", b"abt", b"abu", b"abv",
@@ -387,7 +384,7 @@ pub mod tests {
 
     #[test]
     fn test_iterator_0() {
-        let skm = SkipMap::new();
+        let skm = SkipMap::new(Options::default());
         let mut i = 0;
         for _ in skm.iter() {
             i += 1;

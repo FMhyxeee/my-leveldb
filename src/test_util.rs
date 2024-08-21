@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use crate::types::{cmp, LdbIterator};
+use crate::types::{Cmp, DefaultCmp, LdbIterator};
 
 pub struct TestLdbIter<'a> {
     v: Vec<(&'a [u8], &'a [u8])>,
@@ -51,7 +51,7 @@ impl<'a> LdbIterator for TestLdbIter<'a> {
     }
     fn seek(&mut self, k: &[u8]) {
         self.ix = 0;
-        while self.ix < self.v.len() && cmp(self.v[self.ix].0, k) == Ordering::Less {
+        while self.ix < self.v.len() && DefaultCmp.cmp(self.v[self.ix].0, k) == Ordering::Less {
             self.ix += 1;
         }
     }
