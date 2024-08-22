@@ -203,11 +203,11 @@ impl<R: Read + Seek, FP: FilterPolicy> Table<R, FP> {
     fn iter(&mut self) -> TableIterator<R, FP> {
         TableIterator {
             current_block: self.indexblock.iter(),
+            init: false,
             current_block_off: 0,
             index_block: self.indexblock.iter(),
             opt: self.opt.clone(),
             table: self,
-            init: false,
         }
     }
 
@@ -259,16 +259,20 @@ impl<R: Read + Seek, FP: FilterPolicy> Table<R, FP> {
 pub struct TableIterator<'a, R: 'a + Read + Seek, FP: 'a + FilterPolicy> {
     table: &'a mut Table<R, FP>,
     opt: Options,
+    // We're not using Option<BlockIter>, but instead a separate `init` field. That makes it easier
+    // working with the current block in the iterator methods (no borrowing annoyance as with
+    // Option<>)
     current_block: BlockIter,
     current_block_off: usize,
-    index_block: BlockIter,
-
     init: bool,
+    index_block: BlockIter,
 }
 
 impl<'a, R: Read + Seek, FP: FilterPolicy> TableIterator<'a, R, FP> {
     // Skips to the entry referenced by the next entry in the index block.
     // This is called once a block has run out of entries.
+    // Err means corruption or I/O error; Ok(true) means a new block was loaded; Ok(false) means
+    // that there's no more entries.
     fn skip_to_next_entry(&mut self) -> Result<bool> {
         if let Some((_key, val)) = self.index_block.next() {
             self.load_block(&val).map(|_| true)
@@ -282,6 +286,7 @@ impl<'a, R: Read + Seek, FP: FilterPolicy> TableIterator<'a, R, FP> {
         let (new_block_handle, _) = BlockHandle::decode(handle);
 
         let block = self.table.read_block(&new_block_handle)?;
+
         self.current_block = block.block.iter();
         self.current_block_off = new_block_handle.offset();
 
@@ -293,19 +298,30 @@ impl<'a, R: Read + Seek, FP: FilterPolicy> Iterator for TableIterator<'a, R, FP>
     type Item = (Vec<u8>, Vec<u8>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if !self.init {
-            self.init = true;
-            if self.skip_to_next_entry().is_err() {
-                return None;
+        // init essentially means that `current_block` is a data block (it's initially filled with
+        // an index block as filler).
+        if self.init {
+            if let Some((key, val)) = self.current_block.next() {
+                Some((key, val))
+            } else {
+                match self.skip_to_next_entry() {
+                    Ok(true) => self.next(),
+                    Ok(false) => None,
+                    // try next block, this might be corruption
+                    Err(_) => self.next(),
+                }
             }
-        }
-
-        if let Some((key, val)) = self.current_block.next() {
-            Some((key, val))
-        } else if self.skip_to_next_entry().unwrap_or(false) {
-            self.next()
         } else {
-            None
+            match self.skip_to_next_entry() {
+                Ok(true) => {
+                    // Only initialize if we got an entry
+                    self.init = true;
+                    self.next()
+                }
+                Ok(false) => None,
+                // try next block from index, this might be corruption
+                Err(_) => self.next(),
+            }
         }
     }
 }
@@ -388,12 +404,15 @@ mod tests {
 
     fn build_data() -> Vec<(&'static str, &'static str)> {
         vec![
+            // block 1
             ("abc", "def"),
             ("abd", "dee"),
             ("bcd", "asa"),
+            // block 2
             ("bsr", "a00"),
             ("xyz", "xxx"),
             ("xzz", "yyy"),
+            // block 3
             ("zzz", "111"),
         ]
     }
@@ -429,7 +448,7 @@ mod tests {
         let mut d = Vec::with_capacity(512);
 
         let opt = Options {
-            block_restart_interval: 2,
+            block_restart_interval: 1,
             block_size: 32,
             ..Default::default()
         };
@@ -465,7 +484,7 @@ mod tests {
         let (mut src, size) = build_table();
         println!("size: {}", size);
 
-        src[45] = 0;
+        src[10] += 1;
         let mut table = Table::new_raw(
             Options::default(),
             Cursor::new(&src as &[u8]),
@@ -479,25 +498,25 @@ mod tests {
 
         {
             let iter = table.iter();
-            // Last block is skipped
-            assert_eq!(iter.count(), 3);
+            // first block is skipped
+            assert_eq!(iter.count(), 4);
         }
 
         {
             let iter = table.iter();
 
             for (k, _) in iter {
-                if k == build_data()[2].0.as_bytes() {
+                if k == build_data()[5].0.as_bytes() {
                     return;
                 }
             }
 
-            panic!("Should have hit 3rd record in table!");
+            panic!("Should have hit 5th record in table!");
         }
     }
 
     #[test]
-    fn test_table_iterator_fwd() {
+    fn test_table_iterator_fwd_bwd() {
         let (src, size) = build_table();
         let data = build_data();
 
@@ -508,14 +527,30 @@ mod tests {
             BloomPolicy::new(4),
         )
         .unwrap();
-        let iter = table.iter();
+        let mut iter = table.iter();
+        let mut i = 0;
 
-        for (i, (k, v)) in iter.enumerate() {
+        for (k, v) in iter.by_ref() {
             assert_eq!(
                 (data[i].0.as_bytes(), data[i].1.as_bytes()),
                 (k.as_ref(), v.as_ref())
             );
+            i += 1;
         }
+
+        assert_eq!(i, data.len());
+        assert!(iter.next().is_none());
+
+        // backwards count
+        let mut j = 0;
+
+        while iter.prev().is_some() {
+            j += 1;
+        }
+
+        // expecting 7 - 1, because the last entry that the iterator stopped on is the last entry
+        // in the table; that is, it needs to go back over 6 entries.
+        assert_eq!(j, 6);
     }
 
     #[test]
@@ -560,6 +595,7 @@ mod tests {
         // See comment on valid()
         assert!(!iter.valid());
         assert!(iter.current().is_none());
+        assert!(iter.prev().is_none());
 
         assert!(iter.next().is_some());
         let first = iter.current();
@@ -596,7 +632,7 @@ mod tests {
 
         // Go back to previous entry, check, go forward two entries, repeat
         // Verifies that prev/next works well.
-        while iter.valid() && i < data.len() {
+        loop {
             iter.prev();
 
             if let Some((k, v)) = iter.current() {
@@ -609,11 +645,13 @@ mod tests {
             }
 
             i += 1;
-            iter.next();
-            iter.next();
+            if iter.next().is_none() || iter.next().is_none() {
+                break;
+            }
         }
 
-        assert_eq!(i, 7);
+        // Skipping the last value because the second next() above will break the loop
+        assert_eq!(i, 6);
     }
 
     #[test]

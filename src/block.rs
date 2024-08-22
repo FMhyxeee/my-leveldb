@@ -62,18 +62,22 @@ impl Block {
 }
 
 pub struct BlockIter {
-    pub block: Rc<BlockContents>,
+    block: Rc<BlockContents>,
     opt: Options,
-    // start of next entry
-    offset: usize,
-    // offset of restarts area
+
+    // offset of restarts area within the block.
     restarts_off: usize,
+
+    // offset of restarts area within the block
+    offset: usize,
+    // offset of the current entry.
     current_entry_offset: usize,
-    // tracks the last restart we encountered
+    // index of the most recent restart.
     current_restart_ix: usize,
 
     // We assemble the key from two parts usually, so we keep the current full key here.
     key: Vec<u8>,
+    // Offset of the current value within the block.
     val_offset: usize,
 }
 
@@ -125,7 +129,6 @@ impl BlockIter {
         }
 
         for _ in self.by_ref() {}
-        self.prev();
     }
 }
 
@@ -133,11 +136,14 @@ impl Iterator for BlockIter {
     type Item = (Vec<u8>, Vec<u8>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.current_entry_offset = self.offset;
-
-        if self.current_entry_offset >= self.restarts_off {
+        if self.offset >= self.restarts_off {
+            self.offset = self.restarts_off;
+            // current_entry_offset is left at the offset of the last entry
             return None;
+        } else {
+            self.current_entry_offset = self.offset;
         }
+
         let (shared, non_shared, valsize) = self.parse_entry();
         self.assemble_key(shared, non_shared);
 
@@ -225,26 +231,33 @@ impl LdbIterator for BlockIter {
     }
 
     fn prev(&mut self) -> Option<Self::Item> {
-        // as in the original implementation -- seek to last restart point, the look for key
-        let current_offset = self.current_entry_offset;
+        // as in the original implementation -- seek to last restart point, then look for key
+        let orig_offset = self.current_entry_offset;
 
         // At the beginning, can't go further back
-        if current_offset == 0 {
+        if orig_offset == 0 {
             self.reset();
             return None;
         }
 
-        while self.get_restart_point(self.current_restart_ix) >= current_offset {
+        while self.get_restart_point(self.current_restart_ix) >= orig_offset {
+            // todo: double check this
+            if self.current_restart_ix == 0 {
+                self.offset = self.restarts_off;
+                self.current_restart_ix = self.number_restarts();
+                break;
+            }
             self.current_restart_ix -= 1;
         }
 
         self.offset = self.get_restart_point(self.current_restart_ix);
-        assert!(self.offset < current_offset);
+        assert!(self.offset < orig_offset);
+
         let mut result;
 
         loop {
             result = self.next();
-            if self.offset >= current_offset {
+            if self.offset >= orig_offset {
                 break;
             }
         }
@@ -462,22 +475,17 @@ mod tests {
         let block_contents = builder.finish();
         let mut block = Block::new(o.clone(), block_contents).iter();
 
-        assert!(!block.valid());
-        assert_eq!(
-            block.next(),
-            Some(("key1".as_bytes().to_vec(), "value1".as_bytes().to_vec()))
-        );
-        assert!(block.valid());
-        block.next();
-        assert!(block.valid());
+        for _ in block.by_ref() {}
+
         block.prev();
         assert!(block.valid());
         assert_eq!(
-            block.current().unwrap(),
-            ("key1".as_bytes().to_vec(), "value1".as_bytes().to_vec())
+            block.current(),
+            Some((
+                "prefix_key2".as_bytes().to_vec(),
+                "value".as_bytes().to_vec()
+            ))
         );
-        block.prev();
-        assert!(!block.valid());
     }
 
     #[test]
@@ -523,6 +531,26 @@ mod tests {
         assert_eq!(
             block.current().unwrap(),
             ("key1".as_bytes().to_vec(), "value1".as_bytes().to_vec())
+        );
+
+        block.seek("prefix_key3".as_bytes());
+        assert!(block.valid());
+        assert_eq!(
+            block.current(),
+            Some((
+                "prefix_key3".as_bytes().to_vec(),
+                "value".as_bytes().to_vec()
+            ))
+        );
+
+        block.seek("prefix_key8".as_bytes());
+        assert!(block.valid());
+        assert_eq!(
+            block.current(),
+            Some((
+                "prefix_key3".as_bytes().to_vec(),
+                "value".as_bytes().to_vec()
+            ))
         );
     }
 
